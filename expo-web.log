@@ -1,0 +1,21 @@
+
+> my@1.0.0 web
+> expo start --web --port 8081 --clear
+
+Starting project at D:\e surgalt\my
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Web .\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 89.0% (302/391)
+Web Bundled 3395ms index.js (558 modules)
+ LOG  [web] Logs will appear in the browser console
+Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 26ms index.js (1 module)
+ LOG  [web] Logs will appear in the browser console
+Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 30ms index.js (1 module)
+ LOG  [web] Logs will appear in the browser console
+Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 18ms index.js (1 module)
+ LOG  [web] Logs will appear in the browser console
