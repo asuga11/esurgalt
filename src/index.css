@@ -1,0 +1,226 @@
+@import url("https://fonts.googleapis.com/css2?family=Nunito&display=swap");
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-nunito: "Nunito", sans-serif;
+}
+
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+@plugin "tailwind-scrollbar" {
+  nocompatible: true;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-family: "Nunito", sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-padding-top: 4.75rem;
+    scroll-padding-bottom: 4.5rem;
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  .app-shell {
+    isolation: isolate;
+  }
+
+  .app-atmosphere {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse at 12% 0%, rgb(251 146 60 / 8%), transparent 34rem),
+      radial-gradient(ellipse at 92% 82%, rgb(59 130 246 / 6%), transparent 32rem);
+  }
+
+  :root.dark .app-atmosphere {
+    background:
+      radial-gradient(ellipse at 12% 0%, rgb(249 115 22 / 9%), transparent 34rem),
+      radial-gradient(ellipse at 92% 82%, rgb(37 99 235 / 8%), transparent 32rem);
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid #f97316;
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgb(249 115 22 / 20%);
+  }
+}
+
+@keyframes hero-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  .app-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .app-header {
+    @apply sticky top-0 z-40 border-b border-slate-200 bg-white/95 text-slate-900 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 dark:text-slate-100;
+  }
+
+  .app-nav-link {
+    @apply flex min-h-11 items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white;
+  }
+
+  .app-nav-link:is([aria-current="page"], [data-current], [data-focus]) {
+    @apply bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300;
+  }
+
+  .app-icon-button {
+    @apply inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white;
+  }
+
+  .app-table-scroll {
+    @apply w-full max-w-full overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900;
+  }
+
+  .app-table-scroll > table {
+    @apply min-w-full border-collapse text-left text-sm;
+  }
+
+  .app-panel {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800;
+  }
+
+  .app-field {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 transition placeholder:text-slate-400 focus:border-orange-500 focus:outline-none focus:ring-4 focus:ring-orange-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400 disabled:opacity-60;
+  }
+
+  .app-button-primary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-orange-700 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-500/20 disabled:opacity-50;
+  }
+
+  .app-button-secondary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50;
+  }
+
+  .site-hero {
+    @apply relative isolate flex items-center justify-center overflow-hidden px-4 py-10 text-center text-white;
+    background-image: linear-gradient(135deg, #020617, #172554 58%, #7c2d12);
+    min-height: 14rem;
+  }
+
+  .site-hero-tall {
+    min-height: 18rem;
+  }
+
+  .site-hero-glow {
+    @apply pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top_right,rgba(249,115,22,0.28),transparent_45%)];
+  }
+}
+
+@media (min-width: 640px) {
+  .site-hero {
+    min-height: 16rem;
+  }
+}
+.app-table-scroll > table > thead > tr {
+  color: var(--color-slate-700);
+  background: var(--color-slate-100);
+}
+
+.app-table-scroll > table :is(th, td) {
+  padding: 0.75rem;
+}
+
+.app-table-scroll > table > tbody > tr {
+  border-bottom: 1px solid var(--color-slate-200);
+  background: var(--color-white);
+}
+
+.app-table-scroll > table > tbody > tr:last-child {
+  border-bottom: 0;
+}
+
+.app-table-scroll > table > tbody > tr:hover {
+  background: var(--color-slate-50);
+}
+
+.dark .app-table-scroll > table > thead > tr {
+  color: var(--color-slate-200);
+  background: var(--color-slate-800);
+}
+
+.dark .app-table-scroll > table > tbody > tr {
+  color: var(--color-slate-200);
+  border-color: var(--color-slate-700);
+  background: var(--color-slate-900);
+}
+
+.dark .app-table-scroll > table > tbody > tr:hover {
+  background: var(--color-slate-800);
+}
+
+@media print {
+  .app-header,
+  .dashboard-shell > aside {
+    display: none;
+  }
+
+  .dashboard-shell {
+    display: block;
+  }
+}
