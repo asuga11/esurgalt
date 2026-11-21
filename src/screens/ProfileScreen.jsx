@@ -1,160 +1,104 @@
-import React from 'react';
-import { Alert, Image, Platform, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { Image, Text, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import ConfirmDialog from '../components/ConfirmDialog';
 import CustomButton from '../components/CustomButton';
+import InlineNotice from '../components/InlineNotice';
 import ScreenWrapper from '../components/ScreenWrapper';
+import BottomNavigationBar from '../components/BottomNavigationBar';
 
-function SectionTitle({ title }) {
-  return <Text className="mb-3 text-lg font-extrabold text-slate-900">{title}</Text>;
+function display(value) {
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  return value?.ner || value?.name || value?.butenNer || '';
 }
 
-function InfoCard({ label, value }) {
+function Information({ title, entries }) {
   return (
-    <View className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <Text className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-        {label}
-      </Text>
-      <Text className="mt-1 text-base font-semibold text-slate-900">
-        {value ? String(value) : '-'}
-      </Text>
-    </View>
-  );
-}
-
-function Badge({ text, type = 'default' }) {
-  const styles =
-    type === 'success'
-      ? 'bg-emerald-100 text-emerald-700'
-      : type === 'warning'
-      ? 'bg-amber-100 text-amber-700'
-      : 'bg-brand-100 text-brand-700';
-
-  return (
-    <View className={`rounded-full px-3 py-1 ${styles.split(' ')[0]}`}>
-      <Text className={`text-xs font-bold ${styles.split(' ')[1]}`}>{text}</Text>
+    <View className="mt-4 rounded-2xl border border-line bg-white p-4">
+      <Text accessibilityRole="header" className="mb-2 text-lg font-extrabold text-slate-900">{title}</Text>
+      {entries.map(([label, value]) => (
+        <View key={label} className="min-h-[44px] flex-row flex-wrap items-baseline justify-between gap-x-3 border-b border-slate-100 py-2">
+          <Text className="text-sm text-slate-600">{label}</Text>
+          <Text className="max-w-full text-sm font-semibold text-slate-900">{display(value) || '—'}</Text>
+        </View>
+      ))}
     </View>
   );
 }
 
 export default function ProfileScreen({ navigation }) {
-  const { user, token, logout, refreshUser } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
+  const [working, setWorking] = useState('');
+  const [notice, setNotice] = useState(null);
+  const [askLogout, setAskLogout] = useState(false);
+  const [failedImage, setFailedImage] = useState(null);
+  const verified = user?.secretToken === 'Баталгаажсан' || user?.isVerified === true;
 
-  const handleRefresh = async () => {
+  const run = async (kind, action) => {
+    if (working) return;
+    setWorking(kind);
+    setNotice(null);
     try {
-      await refreshUser();
-      Alert.alert('Амжилттай', 'Мэдээлэл шинэчлэгдлээ');
-    } catch (error) {
-      Alert.alert('Алдаа', error?.message || 'Шинэчлэхэд алдаа гарлаа');
+      await action();
+      if (kind === 'refresh') setNotice({ success: true, message: 'Мэдээлэл шинэчлэгдлээ.' });
+    } catch (reason) {
+      setNotice({ message: reason?.message || 'Дахин оролдоно уу.' });
+    } finally {
+      setWorking('');
     }
   };
 
-  const handleLogout = async () => {
-    if (Platform.OS === 'web') {
-      const confirmed = window.confirm('Та системээс гарахдаа итгэлтэй байна уу?');
-
-      if (confirmed) {
-        await logout();
-      }
-
-      return;
-    }
-
-    Alert.alert('Гарах', 'Та системээс гарахдаа итгэлтэй байна уу?', [
-      { text: 'Болих', style: 'cancel' },
-      { text: 'Гарах', style: 'destructive', onPress: logout },
-    ]);
-  };
-
-  const profileImage =
-    user?.image && user.image !== 'no image' && user.image.startsWith('http') ? user.image : null;
-
-  const initials = `${user?.lastname?.charAt(0) || ''}${user?.firstname?.charAt(0) || '?'}`;
-  const schoolName =
-    user?.surguuli?.ner || user?.surguuli?.name || user?.surguuli || user?.school?.ner || '-';
+  const imageUrl = typeof user?.image === 'string' && /^https?:\/\//i.test(user.image) ? user.image : null;
+  const name = display(user?.butenNer) || [display(user?.lastname), display(user?.firstname)].filter(Boolean).join(' ');
+  const initials = [display(user?.lastname)[0], display(user?.firstname)[0]].filter(Boolean).join('') || '?';
 
   return (
-    <ScreenWrapper scroll>
-      <View className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-card">
-        <View className="items-center">
-          {profileImage ? (
-            <Image
-              source={{ uri: profileImage }}
-              className="h-28 w-28 rounded-full border-4 border-brand-100"
-            />
+    <ScreenWrapper scroll bottomBar={<BottomNavigationBar navigation={navigation} />}>
+      <View className="overflow-hidden rounded-[26px] border border-line bg-white">
+        <View className="flex-row items-center gap-3 bg-brand-950 px-4 py-5">
+          {imageUrl && imageUrl !== failedImage ? (
+            <Image source={{ uri: imageUrl }} onError={() => setFailedImage(imageUrl)} className="h-16 w-16 rounded-[20px] bg-white" />
           ) : (
-            <View className="h-28 w-28 items-center justify-center rounded-full border-4 border-brand-100 bg-brand-600">
-              <Text className="text-3xl font-extrabold text-white">{initials}</Text>
+            <View className="h-16 w-16 items-center justify-center rounded-[20px] bg-brand-600">
+              <Text className="text-xl font-extrabold text-white">{initials}</Text>
             </View>
           )}
-
-          <Text className="mt-4 text-2xl font-extrabold text-slate-900">
-            {user?.butenNer || `${user?.lastname || ''} ${user?.firstname || ''}`.trim() || 'Хэрэглэгч'}
-          </Text>
-
-          <Text className="mt-1 text-sm text-slate-500">{user?.email || '-'}</Text>
-
-          <View className="mt-4 flex-row items-center gap-2">
-            <Badge text={user?.isActive ? 'Идэвхтэй' : 'Идэвхгүй'} type={user?.isActive ? 'success' : 'warning'} />
-            <Badge text={user?.secretToken || 'Баталгаажаагүй'} type={user?.secretToken === 'Баталгаажсан' ? 'success' : 'warning'} />
+          <View className="min-w-0 flex-1">
+            <Text accessibilityRole="header" className="text-xl font-extrabold text-white">{name || 'Миний профайл'}</Text>
+            {!!user?.email && <Text className="mt-1 text-sm text-brand-100">{display(user.email)}</Text>}
+            <Text className={`mt-1 text-xs font-semibold ${verified ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {verified ? 'Имэйл баталгаажсан' : 'Имэйл баталгаажаагүй'}
+            </Text>
           </View>
         </View>
-
-        <View className="mt-6 rounded-3xl bg-brand-50 p-4">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-1 pr-3">
-              <Text className="text-xs font-bold uppercase tracking-wider text-brand-400">
-                Сургууль
-              </Text>
-              <Text className="mt-1 text-lg font-extrabold text-brand-700">{schoolName}</Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => navigation.navigate('EditProfile')}
-              className="rounded-2xl bg-white px-4 py-2"
-              activeOpacity={0.85}
-            >
-              <Text className="font-bold text-brand-700">Засах</Text>
-            </TouchableOpacity>
-          </View>
+        <View className="gap-2 p-3">
+        <CustomButton title="Мэдээлэл засах" compact onPress={() => navigation.navigate('EditProfile')} />
+        {!verified && <CustomButton title="Имэйл баталгаажуулах" variant="outline" compact
+          onPress={() => navigation.navigate('Verification')} />}
         </View>
+      </View>
 
-        <View className="mt-7">
-          <SectionTitle title="Хувийн мэдээлэл" />
-          <InfoCard label="Овог" value={user?.lastname} />
-          <InfoCard label="Нэр" value={user?.firstname} />
-          <InfoCard label="Хүйс" value={user?.gender} />
-          <InfoCard label="Регистр" value={user?.regnum} />
-          <InfoCard label="Баркод" value={user?.barcode} />
-          <InfoCard label="Төлөв" value={user?.status} />
-        </View>
+      <Information title="Хувийн мэдээлэл" entries={[
+        ['Овог', user?.lastname], ['Нэр', user?.firstname], ['Хүйс', user?.gender],
+        ['Регистр', user?.regnum], ['Баркод', user?.barcode], ['Төлөв', user?.status],
+      ]} />
+      <Information title="Холбоо барих ба сургууль" entries={[
+        ['Утас', user?.phone1], ['Нэмэлт утас', user?.phone2],
+        ['Аймаг / Хот', user?.city], ['Сум / Дүүрэг', user?.soum], ['Сургууль', display(user?.surguuli) || display(user?.school)],
+        ['Бүлэг', user?.buleg], ['Төгсөлт', user?.onTugsult],
+      ]} />
 
-        <View className="mt-4">
-          <SectionTitle title="Холбоо барих ба сургууль" />
-          <InfoCard label="Утас 1" value={user?.phone1} />
-          <InfoCard label="Утас 2" value={user?.phone2} />
-          <InfoCard label="Аймаг / Хот" value={user?.city} />
-          <InfoCard label="Сум / Дүүрэг" value={user?.soum} />
-          <InfoCard label="Сургууль" value={schoolName} />
-          <InfoCard label="Бүлэг" value={user?.buleg?.ner || user?.buleg} />
-          <InfoCard label="Төгсөлт" value={user?.onTugsult} />
-          <InfoCard label="И-мэйл баталгаажуулалт" value={user?.secretToken} />
-          <InfoCard label="Token" value={token ? 'Байгаа' : 'Ирээгүй'} />
-        </View>
-
-        <View className="mt-6">
-          <CustomButton title="Мэдээлэл шинэчлэх" onPress={handleRefresh} />
-          <CustomButton
-            title="Мэдээлэл засах"
-            variant="outline"
-            onPress={() => navigation.navigate('EditProfile')}
-          />
-          <CustomButton
-            title="И-мэйл баталгаажуулах"
-            variant="outline"
-            onPress={() => navigation.navigate('Verification')}
-          />
-          <CustomButton title="Гарах" variant="danger" onPress={handleLogout} />
-        </View>
+      <View className="mt-4">
+        <InlineNotice message={notice?.message} success={notice?.success} />
+        <CustomButton title="Мэдээлэл шинэчлэх" variant="outline" onPress={() => run('refresh', refreshUser)}
+          loading={working === 'refresh'} disabled={working === 'logout'} />
+        <CustomButton title="Гарах" variant="danger" onPress={() => setAskLogout(true)}
+          loading={working === 'logout'} disabled={working === 'refresh'} />
+        {askLogout && (
+          <ConfirmDialog title="Аппаас гарах уу?" message="Дахин ашиглахдаа нэвтрэх шаардлагатай."
+            cancelLabel="Үлдэх" confirmLabel="Гарахыг баталгаажуулах" onCancel={() => setAskLogout(false)}
+            onConfirm={() => { setAskLogout(false); run('logout', logout); }} />
+        )}
       </View>
     </ScreenWrapper>
   );

@@ -1,9 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import API from '../services/api';
 import CustomButton from '../components/CustomButton';
 import FormInput from '../components/FormInput';
+import CollectionState from '../components/CollectionState';
+import InlineNotice from '../components/InlineNotice';
+import PageIntro from '../components/PageIntro';
 import ScreenWrapper from '../components/ScreenWrapper';
 
 const LOCATION_OPTIONS = {
@@ -31,7 +34,8 @@ const LOCATION_OPTIONS = {
   'Хэнтий': ['Батноров', 'Батширээт', 'Баян-Адарга', 'Баянмөнх', 'Баян-Овоо', 'Баянхутаг', 'Биндэр', 'Бор-Өндөр', 'Галшар', 'Дархан', 'Дадал', 'Дэлгэрхаан', 'Жаргалтхаан', 'Мөрөн', 'Норовлин', 'Өмнөдэлгэр', 'Хэрлэн', 'Цэнхэрмандал'],
 };
 
-const getListFromResponse = (response) => {
+const getListFromResponse = (result) => {
+  const response = result?.data ?? result;
   if (Array.isArray(response)) return response;
   if (Array.isArray(response?.data)) return response.data;
   if (Array.isArray(response?.surguuli)) return response.surguuli;
@@ -62,10 +66,12 @@ const getSchoolSoum = (school) =>
 function OptionButton({ label, selected, disabled = false, onPress }) {
   return (
     <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}
       className={`mb-2 rounded-2xl border px-4 py-3 ${
-        selected ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-slate-50'
+        selected ? 'border-brand-600 bg-brand-50' : 'border-line bg-slate-50'
       } ${disabled ? 'opacity-50' : ''}`}
     >
       <Text className={`text-sm font-bold ${selected ? 'text-brand-700' : 'text-slate-800'}`}>
@@ -89,14 +95,17 @@ function DropdownSection({
     <View className="mb-4">
       <Text className="mb-2 text-sm font-semibold text-slate-700">{title}</Text>
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={value ? title + ': ' + value : title}
+        accessibilityState={{ expanded: open, disabled }}
         disabled={disabled}
         onPress={onToggle}
-        className={`rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 ${
+        className={`rounded-2xl border border-line bg-slate-50 px-4 py-4 ${
           disabled ? 'opacity-50' : ''
         }`}
       >
-        <View className="flex-row items-center justify-between">
-          <Text className={`text-base font-semibold ${value ? 'text-slate-900' : 'text-slate-400'}`}>
+        <View className="flex-row items-center justify-between gap-2">
+          <Text className={`flex-1 text-base font-semibold ${value ? 'text-slate-900' : 'text-slate-400'}`}>
             {value || placeholder}
           </Text>
           <Text className="text-base font-bold text-slate-500">{open ? '▲' : '▼'}</Text>
@@ -104,7 +113,7 @@ function DropdownSection({
       </TouchableOpacity>
 
       {open && (
-        <View className="mt-2 rounded-2xl border border-slate-200 bg-white p-2">
+        <View className="mt-2 rounded-2xl border border-line bg-white p-2">
           {options.map((option) => (
             <OptionButton
               key={option}
@@ -119,47 +128,22 @@ function DropdownSection({
   );
 }
 
-function OptionSection({ title, children }) {
-  const [open, setOpen] = useState(false);
-  const options = React.Children.map(children, (child) => {
-    if (!React.isValidElement(child)) return child;
-
-    return React.cloneElement(child, {
-      onPress: async () => {
-        await child.props.onPress?.();
-        setOpen(false);
-      },
-    });
-  });
-
-  return (
-    <View className="mb-4">
-      <Text className="mb-2 text-sm font-semibold text-slate-700">{title}</Text>
-      <TouchableOpacity
-        onPress={() => setOpen((current) => !current)}
-        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4"
-      >
-        <View className="flex-row items-center justify-between">
-          <Text className="text-base font-semibold text-slate-600">
-            {open ? 'Сонголтуудыг хаах' : 'Сонгох'}
-          </Text>
-          <Text className="text-base font-bold text-slate-500">{open ? '▲' : '▼'}</Text>
-        </View>
-      </TouchableOpacity>
-
-      {open && <View className="mt-2 rounded-2xl border border-slate-200 bg-white p-2">{options}</View>}
-    </View>
-  );
-}
-
 export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [schoolError, setSchoolError] = useState('');
+  const [bulegError, setBulegError] = useState('');
+  const schoolRequest = useRef(null);
+  const groupRequest = useRef(null);
+  useEffect(() => () => {
+    schoolRequest.current?.abort();
+    groupRequest.current?.abort();
+  }, []);
   const [schoolLoading, setSchoolLoading] = useState(false);
   const [bulegLoading, setBulegLoading] = useState(false);
   const [schools, setSchools] = useState([]);
   const [bulegList, setBulegList] = useState([]);
-  const [selectedSchoolName, setSelectedSchoolName] = useState('');
   const [openPicker, setOpenPicker] = useState(null);
 
   const [form, setForm] = useState({
@@ -190,11 +174,11 @@ export default function RegisterScreen({ navigation }) {
 
     if (!selectedSoum) return schools;
 
-    const matched = schools.filter((school) => getSchoolSoum(school) === selectedSoum);
-    return matched.length ? matched : schools;
+    return schools.filter((school) => !getSchoolSoum(school) || getSchoolSoum(school) === selectedSoum);
   }, [form.soum, schools]);
 
   const setField = (key, value) => {
+    setStatus(null);
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -202,38 +186,54 @@ export default function RegisterScreen({ navigation }) {
 
   const loadBulegList = async (schoolId) => {
     if (!schoolId) return;
+    groupRequest.current?.abort();
+    const controller = new AbortController();
+    groupRequest.current = controller;
 
     try {
       setBulegLoading(true);
-      const response = await API.getBulegListBySchoolId(schoolId);
+      setBulegError('');
+      const response = await API.getBulegListBySchoolId(schoolId, null, controller.signal);
+      if (controller.signal.aborted) return;
       setBulegList(getListFromResponse(response));
     } catch (error) {
+      if (controller.signal.aborted) return;
       setBulegList([]);
-      Alert.alert('Алдаа', error?.message || 'Бүлгийн жагсаалт авахад алдаа гарлаа');
+      setBulegError(error?.message || 'Бүлгийн жагсаалт авахад алдаа гарлаа.');
     } finally {
-      setBulegLoading(false);
+      if (!controller.signal.aborted) setBulegLoading(false);
     }
   };
 
   const loadSchools = async (city, soum) => {
+    schoolRequest.current?.abort();
+    const controller = new AbortController();
+    schoolRequest.current = controller;
     try {
       setSchoolLoading(true);
-      const response = await API.findSchoolsByProvince(city, soum);
+      setSchoolError('');
+      const response = await API.findSchoolsByProvince(city, soum, null, controller.signal);
+      if (controller.signal.aborted) return;
       const foundSchools = getListFromResponse(response);
       setSchools(foundSchools);
 
-      if (!foundSchools.length) {
-        Alert.alert('Мэдээлэл', 'Сонгосон байршилд сургууль олдсонгүй');
-      }
     } catch (error) {
+      if (controller.signal.aborted) return;
       setSchools([]);
-      Alert.alert('Алдаа', error?.message || 'Сургууль хайхад алдаа гарлаа');
+      setSchoolError(error?.message || 'Сургууль хайхад алдаа гарлаа.');
     } finally {
-      setSchoolLoading(false);
+      if (!controller.signal.aborted) setSchoolLoading(false);
     }
   };
 
   const handleSelectAimag = (aimag) => {
+    setStatus(null);
+    setSchoolError('');
+    setBulegError('');
+    schoolRequest.current?.abort();
+    groupRequest.current?.abort();
+    setSchoolLoading(false);
+    setBulegLoading(false);
     setForm((prev) => ({
       ...prev,
       city: aimag,
@@ -242,34 +242,36 @@ export default function RegisterScreen({ navigation }) {
       buleg: '',
     }));
     setSchools([]);
-    setSelectedSchoolName('');
     setBulegList([]);
     setOpenPicker(null);
   };
 
   const handleSelectSoum = async (soum) => {
+    setStatus(null);
+    setBulegError('');
+    groupRequest.current?.abort();
+    setBulegLoading(false);
+    setSchools([]);
     setForm((prev) => ({
       ...prev,
       soum,
       surguuli: '',
       buleg: '',
     }));
-    setSelectedSchoolName('');
     setBulegList([]);
     setOpenPicker(null);
     await loadSchools(form.city, soum);
   };
 
   const handleSelectSchool = async (school) => {
+    setStatus(null);
     const schoolId = getItemId(school);
-    const schoolName = getItemLabel(school);
 
     setForm((prev) => ({
       ...prev,
       surguuli: schoolId,
       buleg: '',
     }));
-    setSelectedSchoolName(schoolName);
     setBulegList([]);
     await loadBulegList(schoolId);
   };
@@ -279,39 +281,41 @@ export default function RegisterScreen({ navigation }) {
   };
 
   const handleRegister = async () => {
+    if (loading || status?.success) return;
     if (!form.lastname.trim() || !form.firstname.trim()) {
-      Alert.alert('Анхаар', 'Овог нэрээ оруулна уу');
+      setStatus({ message: 'Овог нэрээ оруулна уу.' });
       return;
     }
 
     if (!validateEmail(form.email.trim())) {
-      Alert.alert('Анхаар', 'Зөв и-мэйл оруулна уу');
+      setStatus({ message: 'Зөв и-мэйл оруулна уу.' });
       return;
     }
 
     if (form.password.trim().length < 6) {
-      Alert.alert('Анхаар', 'Нууц үг хамгийн багадаа 6 тэмдэгт байна');
+      setStatus({ message: 'Нууц үг хамгийн багадаа 6 тэмдэгт байна.' });
       return;
     }
 
     if (!form.city.trim()) {
-      Alert.alert('Анхаар', 'Аймаг / хотоо сонгоно уу');
+      setStatus({ message: 'Аймаг / хотоо сонгоно уу.' });
       return;
     }
 
     if (!form.soum.trim()) {
-      Alert.alert('Анхаар', 'Сум / дүүргээ сонгоно уу');
+      setStatus({ message: 'Сум / дүүргээ сонгоно уу.' });
       return;
     }
 
     if (!form.surguuli.trim()) {
-      Alert.alert('Анхаар', 'Сургуулиа сонгоно уу');
+      setStatus({ message: 'Сургуулиа сонгоно уу.' });
       return;
     }
 
     try {
       setLoading(true);
-      const response = await register({
+      setStatus(null);
+      await register({
         ...form,
         lastname: form.lastname.trim(),
         firstname: form.firstname.trim(),
@@ -322,7 +326,7 @@ export default function RegisterScreen({ navigation }) {
         social1: form.social1.trim(),
         social2: form.social2.trim(),
         email: form.email.trim(),
-        password: form.password.trim(),
+        password: form.password,
         city: form.city.trim(),
         soum: form.soum.trim(),
         surguuli: form.surguuli.trim(),
@@ -332,11 +336,9 @@ export default function RegisterScreen({ navigation }) {
         role: 'suragch',
       });
 
-      Alert.alert('Амжилттай', response?.message || 'Бүртгэл амжилттай үүслээ', [
-        { text: 'OK', onPress: () => navigation.navigate('Login') },
-      ]);
+      setStatus({ success: true, message: 'Бүртгэл үүслээ. Имэйлээр ирсэн баталгаажуулах кодоо шалгана уу.' });
     } catch (error) {
-      Alert.alert('Алдаа', error?.message || 'Бүртгэл амжилтгүй боллоо');
+      setStatus({ message: error?.message || 'Бүртгэл амжилтгүй боллоо.' });
     } finally {
       setLoading(false);
     }
@@ -344,51 +346,31 @@ export default function RegisterScreen({ navigation }) {
 
   return (
     <ScreenWrapper scroll>
-      <View className="rounded-3xl border border-slate-200 bg-white p-5 shadow-card">
-        <Text className="text-center text-3xl font-extrabold text-slate-900">Бүртгүүлэх</Text>
-        <Text className="mt-2 mb-5 text-center text-sm text-slate-500">
-          Аймаг, сум, сургуулиа дарааллаар нь сонгоод бүртгэлээ үүсгэнэ үү.
-        </Text>
+      <View className="mx-auto w-full max-w-[620px] rounded-[26px] border border-line bg-white p-4 shadow-card">
+        <PageIntro title="Сурагчийн бүртгэл" icon="person-add-outline" />
+        <FormInput editable={!loading && !status?.success} label="Овог" value={form.lastname} onChangeText={(v) => setField('lastname', v)} placeholder="Овог" />
+        <FormInput editable={!loading && !status?.success} label="Нэр" value={form.firstname} onChangeText={(v) => setField('firstname', v)} placeholder="Нэр" />
+        <FormInput editable={!loading && !status?.success} label="Хүйс" value={form.gender} onChangeText={(v) => setField('gender', v)} placeholder="Эрэгтэй / Эмэгтэй" />
+        <FormInput editable={!loading && !status?.success} label="Регистр" value={form.regnum} onChangeText={(v) => setField('regnum', v)} placeholder="ПД50321016" autoCapitalize="characters" />
+        <FormInput editable={!loading && !status?.success} label="Утас 1" value={form.phone1} onChangeText={(v) => setField('phone1', v)} placeholder="90100689" keyboardType="phone-pad" />
+        <FormInput editable={!loading && !status?.success} label="Утас 2" value={form.phone2} onChangeText={(v) => setField('phone2', v)} placeholder="88439911" keyboardType="phone-pad" />
+        <FormInput editable={!loading && !status?.success} label="Facebook" value={form.social1} onChangeText={(v) => setField('social1', v)} placeholder="Facebook нэр" />
+        <FormInput editable={!loading && !status?.success} label="Instagram" value={form.social2} onChangeText={(v) => setField('social2', v)} placeholder="Instagram нэр" />
+        <FormInput editable={!loading && !status?.success} label="Имэйл хаяг" autoComplete="email" value={form.email} onChangeText={(v) => setField('email', v)} placeholder="example@gmail.com" keyboardType="email-address" autoCapitalize="none" />
+        <FormInput editable={!loading && !status?.success} label="Нууц үг" autoComplete="new-password" value={form.password} onChangeText={(v) => setField('password', v)} placeholder="******" secureTextEntry autoCapitalize="none" />
 
-        <FormInput label="Овог" value={form.lastname} onChangeText={(v) => setField('lastname', v)} placeholder="Овог" />
-        <FormInput label="Нэр" value={form.firstname} onChangeText={(v) => setField('firstname', v)} placeholder="Нэр" />
-        <FormInput label="Хүйс" value={form.gender} onChangeText={(v) => setField('gender', v)} placeholder="Эрэгтэй / Эмэгтэй" />
-        <FormInput label="Регистр" value={form.regnum} onChangeText={(v) => setField('regnum', v)} placeholder="ПД50321016" autoCapitalize="characters" />
-        <FormInput label="Утас 1" value={form.phone1} onChangeText={(v) => setField('phone1', v)} placeholder="90100689" keyboardType="phone-pad" />
-        <FormInput label="Утас 2" value={form.phone2} onChangeText={(v) => setField('phone2', v)} placeholder="88439911" keyboardType="phone-pad" />
-        <FormInput label="Social 1" value={form.social1} onChangeText={(v) => setField('social1', v)} placeholder="Facebook нэр" />
-        <FormInput label="Social 2" value={form.social2} onChangeText={(v) => setField('social2', v)} placeholder="Instagram нэр" />
-        <FormInput label="И-мэйл" value={form.email} onChangeText={(v) => setField('email', v)} placeholder="example@gmail.com" keyboardType="email-address" autoCapitalize="none" />
-        <FormInput label="Нууц үг" value={form.password} onChangeText={(v) => setField('password', v)} placeholder="******" secureTextEntry autoCapitalize="none" />
-
-        <OptionSection title="Аймаг / Хот">
-          {aimagList.map((aimag) => (
-            <OptionButton
-              key={aimag}
-              label={aimag}
-              selected={form.city === aimag}
-              onPress={() => handleSelectAimag(aimag)}
-            />
-          ))}
-        </OptionSection>
-
-        {!!form.city && (
-          <OptionSection title="Сум / Дүүрэг">
-            {soumList.map((soum) => (
-              <OptionButton
-                key={soum}
-                label={soum}
-                selected={form.soum === soum}
-                onPress={() => handleSelectSoum(soum)}
-              />
-            ))}
-          </OptionSection>
-        )}
+        <Text accessibilityRole="header" className="mb-3 mt-2 text-lg font-extrabold text-slate-900">Сургуулийн мэдээлэл</Text>
+        <DropdownSection title="Аймаг / Хот" value={form.city} placeholder="Аймаг / хот сонгох"
+          options={aimagList} open={openPicker === 'city'} onToggle={() => setOpenPicker(openPicker === 'city' ? null : 'city')}
+          onSelect={handleSelectAimag} disabled={loading || status?.success} />
+        <DropdownSection title="Сум / Дүүрэг" value={form.soum} placeholder="Сум / дүүрэг сонгох"
+          options={soumList} open={openPicker === 'soum'} onToggle={() => setOpenPicker(openPicker === 'soum' ? null : 'soum')}
+          onSelect={handleSelectSoum} disabled={!form.city || loading || status?.success} />
 
         {!!form.soum && (
           <View className="mb-4">
             <Text className="mb-2 text-sm font-semibold text-slate-700">
-              Сургууль {schoolLoading ? '(уншиж байна...)' : ''}
+              Сургууль {schoolLoading ? '(ачаалж байна…)' : ''}
             </Text>
 
             {visibleSchools.map((school, index) => {
@@ -399,36 +381,37 @@ export default function RegisterScreen({ navigation }) {
               return (
                 <TouchableOpacity
                   key={`${schoolId}-${index}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  disabled={loading || status?.success}
                   onPress={() => handleSelectSchool(school)}
                   className={`mb-2 rounded-2xl border px-4 py-3 ${
-                    selected ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-slate-50'
+                    selected ? 'border-brand-600 bg-brand-50' : 'border-line bg-slate-50'
                   }`}
                 >
                   <Text className={`font-bold ${selected ? 'text-brand-700' : 'text-slate-900'}`}>
                     {schoolName || 'Нэргүй сургууль'}
                   </Text>
-                  <Text className="mt-1 text-xs text-slate-500">{schoolId}</Text>
                 </TouchableOpacity>
               );
             })}
 
-            {!schoolLoading && !visibleSchools.length && (
-              <Text className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            {schoolError ? (
+              <CollectionState state="error" title="Сургууль ачаалж чадсангүй" detail={schoolError}
+                action={() => loadSchools(form.city, form.soum)} />
+            ) : !schoolLoading && !visibleSchools.length ? (
+              <Text className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 Сонгосон сум / дүүрэгт сургууль олдсонгүй.
               </Text>
-            )}
+            ) : null}
           </View>
         )}
 
-        {!!selectedSchoolName && (
-          <Text className="mb-4 text-sm font-semibold text-brand-700">
-            Сонгосон сургууль: {selectedSchoolName}
-          </Text>
-        )}
+        <FormInput editable={!loading && !status?.success} label="Анги" value={form.angi} onChangeText={(v) => setField('angi', v)} placeholder="12" />
+        <FormInput editable={!loading && !status?.success} label="Бүлэг" value={form.buleg} onChangeText={(v) => setField('buleg', v)} placeholder={bulegLoading ? 'Уншиж байна...' : 'A'} />
 
-        <FormInput label="Анги" value={form.angi} onChangeText={(v) => setField('angi', v)} placeholder="12" />
-        <FormInput label="Бүлэг" value={form.buleg} onChangeText={(v) => setField('buleg', v)} placeholder={bulegLoading ? 'Уншиж байна...' : 'A'} />
-
+        {!!bulegError && <CollectionState state="error" title="Бүлэг ачаалж чадсангүй" detail={bulegError}
+          action={() => loadBulegList(form.surguuli)} />}
         {bulegList.map((buleg, index) => {
           const bulegId = getItemId(buleg);
           const bulegName = getItemLabel(buleg);
@@ -437,9 +420,12 @@ export default function RegisterScreen({ navigation }) {
           return (
             <TouchableOpacity
               key={`${bulegId}-${index}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              disabled={loading || status?.success}
               onPress={() => handleSelectBuleg(buleg)}
               className={`mt-2 rounded-2xl border px-4 py-3 ${
-                selected ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-slate-50'
+                selected ? 'border-brand-600 bg-brand-50' : 'border-line bg-slate-50'
               }`}
             >
               <Text className={`font-bold ${selected ? 'text-brand-700' : 'text-slate-900'}`}>
@@ -449,11 +435,16 @@ export default function RegisterScreen({ navigation }) {
           );
         })}
 
-        <FormInput label="Төгсөлт" value={form.onTugsult} onChangeText={(v) => setField('onTugsult', v)} placeholder="2026" />
+        <FormInput editable={!loading && !status?.success} label="Төгсөлт" value={form.onTugsult} onChangeText={(v) => setField('onTugsult', v)} placeholder="2026" />
 
-        <CustomButton title="Бүртгүүлэх" onPress={handleRegister} loading={loading} />
+        <InlineNotice message={status?.message} success={status?.success} />
+        {status?.success ? (
+          <CustomButton title="Имэйл баталгаажуулах" onPress={() => navigation.replace('Verification')} />
+        ) : (
+          <CustomButton title="Бүртгүүлэх" onPress={handleRegister} loading={loading} />
+        )}
 
-        <TouchableOpacity className="mt-4 items-center" onPress={() => navigation.navigate('Login')}>
+        <TouchableOpacity accessibilityRole="button" className="mt-3 min-h-[44px] items-center justify-center" onPress={() => navigation.popTo('Login')}>
           <Text className="text-sm font-bold text-brand-600">Нэвтрэх хуудас руу буцах</Text>
         </TouchableOpacity>
       </View>

@@ -1,194 +1,134 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { jwtDecode } from 'jwt-decode';
 import API from '../services/api';
 
 const AuthContext = createContext();
+const SESSION_KEY = 'esurgalt.session';
+const LEGACY_KEYS = ['user', 'token'];
 
-const STORAGE_KEYS = {
-  USER: 'user',
-  TOKEN: 'token',
+const pickUser = (response) => {
+  const data = response?.data ?? response;
+  const profile = data?.suragch ?? data?.user ?? data;
+  return profile?._id || profile?.id ? profile : null;
 };
 
-const pickUser = (response) =>
-  response?.suragch ||
-  response?.user ||
-  response?.data?.suragch ||
-  response?.data?.user ||
-  response?.data ||
-  (response?._id || response?.id ? response : null) ||
-  null;
+function readClaims(token) {
+  if (!token) return null;
+  try {
+    const claims = jwtDecode(token);
+    const id = claims.id || claims._id || claims.sub;
+    return id && (claims.exp == null || claims.exp * 1000 > Date.now()) ? { ...claims, id } : null;
+  } catch {
+    return null;
+  }
+}
 
-const pickToken = (response) =>
-  response?.token ||
-  response?.accessToken ||
-  response?.data?.token ||
-  response?.data?.accessToken ||
-  null;
-
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
+export function AuthProvider({ children }) {
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const sessionRef = useRef(null);
+  const writes = useRef(Promise.resolve());
 
-  const saveAuthData = async (savedUser, savedToken) => {
-    try {
-      setUser(savedUser);
-      setToken(savedToken);
-
-      await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(savedUser));
-      await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, savedToken);
-    } catch (error) {
-      console.log('saveAuthData error:', error);
-      throw new Error('Хэрэглэгчийн мэдээлэл хадгалах үед алдаа гарлаа');
-    }
+  const queueWrite = (operation) => {
+    const write = writes.current.then(operation);
+    writes.current = write.catch(() => {});
+    return write;
   };
 
-  const clearStorage = async () => {
-    try {
-      await AsyncStorage.multiRemove([STORAGE_KEYS.USER, STORAGE_KEYS.TOKEN]);
-    } catch (error) {
-      console.log('clearStorage error:', error);
-    }
-  };
-
-  const login = async (email, password) => {
-    try {
-      const loginResponse = await API.login(email, password);
-      const returnedToken = pickToken(loginResponse);
-
-      if (!returnedToken) {
-        throw new Error('Token ирсэнгүй');
-      }
-
-      const decodedToken = jwtDecode(returnedToken);
-      const userId = decodedToken?.id || decodedToken?._id || decodedToken?.sub;
-
-      if (!userId) {
-        throw new Error('Token дотор хэрэглэгчийн ID олдсонгүй');
-      }
-
-      const userResponse = await API.getStudentById(userId, returnedToken);
-      const returnedUser = pickUser(userResponse);
-
-      if (!returnedUser) {
-        throw new Error('Хэрэглэгчийн мэдээлэл ирсэнгүй');
-      }
-
-      await saveAuthData(returnedUser, returnedToken);
-
-      return {
-        success: true,
-        token: returnedToken,
-        suragch: returnedUser,
-      };
-    } catch (error) {
-      throw new Error(error?.message || 'Нэвтрэх үед алдаа гарлаа');
-    }
-  };
-
-  const register = async (formData) => {
-    try {
-      return await API.register(formData);
-    } catch (error) {
-      throw new Error(error?.message || 'Бүртгүүлэх үед алдаа гарлаа');
-    }
-  };
-
-  const logout = async () => {
-    try {
-      setUser(null);
-      setToken(null);
-      await clearStorage();
-    } catch (error) {
-      console.log('logout error:', error);
-    }
-  };
-
-  const checkLogin = async () => {
-    try {
-      setLoading(true);
-
-      const savedUser = await AsyncStorage.getItem(STORAGE_KEYS.USER);
-      const savedToken = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
-
-      if (savedUser) {
-        setUser(JSON.parse(savedUser));
-      }
-
-      if (savedToken) {
-        setToken(savedToken);
-      }
-    } catch (error) {
-      console.log('checkLogin error:', error);
-      setUser(null);
-      setToken(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const refreshUser = async () => {
-    try {
-      const currentUserId = user?._id || user?.id;
-
-      if (!currentUserId) {
-        throw new Error('Хэрэглэгчийн ID олдсонгүй');
-      }
-
-      const response = await API.getStudentById(currentUserId, token);
-      const freshUser = pickUser(response);
-
-      if (!freshUser) {
-        throw new Error('Шинэ хэрэглэгчийн мэдээлэл ирсэнгүй');
-      }
-
-      setUser(freshUser);
-      await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(freshUser));
-
-      return freshUser;
-    } catch (error) {
-      console.log('refreshUser error:', error);
-      throw new Error(error?.message || 'Хэрэглэгчийн мэдээлэл шинэчлэхэд алдаа гарлаа');
-    }
-  };
-
-  const updateUser = async (newUserData) => {
-    try {
-      const updatedUser = {
-        ...user,
-        ...newUserData,
-      };
-
-      setUser(updatedUser);
-      await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
-    } catch (error) {
-      console.log('updateUser error:', error);
-      throw new Error('Хэрэглэгчийн мэдээлэл шинэчлэхэд алдаа гарлаа');
-    }
+  const publish = (next) => {
+    sessionRef.current = next;
+    setSession(next);
   };
 
   useEffect(() => {
-    checkLogin();
+    let active = true;
+    async function restore() {
+      try {
+        const stored = await AsyncStorage.getItem(SESSION_KEY);
+        let saved;
+        if (stored) {
+          saved = JSON.parse(stored);
+        } else {
+          const entries = Object.fromEntries(await AsyncStorage.multiGet(LEGACY_KEYS));
+          saved = { user: JSON.parse(entries.user || 'null'), token: entries.token };
+        }
+
+        const claims = readClaims(saved?.token);
+        const profile = pickUser(saved?.user);
+        if (claims && profile && String(claims.id) === String(profile._id || profile.id)) {
+          if (active) publish({ user: profile, token: saved.token });
+        } else {
+          await AsyncStorage.multiRemove([SESSION_KEY, ...LEGACY_KEYS]);
+        }
+      } catch {
+        // If storage is unavailable, the user can still open the sign-in form.
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    restore();
+    return () => { active = false; };
   }, []);
 
-  const value = useMemo(
-    () => ({
-      user,
-      token,
-      loading,
-      isAuthenticated: !!user,
-      login,
-      register,
-      logout,
-      checkLogin,
-      refreshUser,
-      updateUser,
-    }),
-    [user, token, loading]
-  );
+  const login = async (email, password) => {
+    const response = await API.login(email, password);
+    const token = response?.token || response?.accessToken || response?.data?.token || response?.data?.accessToken;
+    const claims = readClaims(token);
+    if (!claims) throw new Error('Нэвтрэх мэдээлэл хүчингүй байна.');
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
+    const user = pickUser(await API.getStudentById(claims.id, token));
+    if (!user || String(user._id || user.id) !== String(claims.id)) {
+      throw new Error('Хэрэглэгчийн мэдээлэл олдсонгүй.');
+    }
+
+    await queueWrite(async () => {
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user, token }));
+      publish({ user, token });
+    });
+  };
+
+  const logout = async () => {
+    await queueWrite(async () => {
+      await AsyncStorage.multiRemove([SESSION_KEY, ...LEGACY_KEYS]);
+      publish(null);
+    });
+  };
+
+  const updateUser = (changes) => {
+    const token = session?.token;
+    return queueWrite(async () => {
+      const current = sessionRef.current;
+      if (!token || current?.token !== token) return;
+      const next = { ...current, user: { ...current.user, ...changes } };
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: next.user, token }));
+      if (sessionRef.current === current) publish(next);
+    });
+  };
+
+  const refreshUser = async () => {
+    if (!session) throw new Error('Дахин нэвтэрнэ үү.');
+    const freshUser = pickUser(await API.getStudentById(session.user._id || session.user.id, session.token));
+    if (!freshUser) throw new Error('Хэрэглэгчийн мэдээлэл олдсонгүй.');
+    await updateUser(freshUser);
+    return freshUser;
+  };
+
+  return (
+    <AuthContext.Provider value={{
+      user: session?.user,
+      token: session?.token,
+      loading,
+      isAuthenticated: Boolean(session),
+      login,
+      logout,
+      register: API.register,
+      updateUser,
+      refreshUser,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
 export const useAuth = () => useContext(AuthContext);

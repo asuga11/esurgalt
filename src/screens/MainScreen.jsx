@@ -1,307 +1,109 @@
-// src/screens/MainScreen.jsx
-
-import React, { useMemo, useState } from 'react';
-import {
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import React, { useCallback } from 'react';
+import { ImageBackground, Platform, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import ScreenWrapper from '../components/ScreenWrapper';
+import BottomNavigationBar from '../components/BottomNavigationBar';
+import { useAuth } from '../context/AuthContext';
+import { useLearningActivity } from '../context/LearningActivityContext';
 
-const trainingList = [
-  {
-    id: 1,
-    title: 'React Native үндэс',
-    description: 'Component, props, state, navigation',
-    progress: 80,
-    lessons: 12,
-    color: 'bg-blue-100',
-    badge: 'Шинэ',
-  },
-  {
-    id: 2,
-    title: 'API ба Login System',
-    description: 'Fetch, token, auth context',
-    progress: 55,
-    lessons: 8,
-    color: 'bg-emerald-100',
-    badge: 'Үргэлжилж байна',
-  },
-  {
-    id: 3,
-    title: 'UI / UX дизайн',
-    description: 'Tailwind, card, spacing, color',
-    progress: 25,
-    lessons: 6,
-    color: 'bg-violet-100',
-    badge: 'Эхлээгүй',
-  },
-];
-
-const quizList = [
-  {
-    id: 1,
-    title: 'React Native анхан шат',
-    questions: 10,
-    score: 90,
-    status: 'Өгсөн',
-  },
-  {
-    id: 2,
-    title: 'Navigation ба API',
-    questions: 15,
-    score: null,
-    status: 'Өгөөгүй',
-  },
-  {
-    id: 3,
-    title: 'Tailwind UI сорил',
-    questions: 20,
-    score: 75,
-    status: 'Өгсөн',
-  },
-];
-
-function ProgressBar({ progress }) {
+function ActivityCard({ title, value, icon, onPress }) {
   return (
-    <View className="mt-3">
-      <View className="h-3 overflow-hidden rounded-full bg-slate-200">
-        <View
-          style={{ width: `${progress}%` }}
-          className="h-3 rounded-full bg-brand-600"
-        />
+    <Pressable accessibilityRole="button" accessibilityLabel={title + (value == null ? '' : ' ' + value)}
+      onPress={onPress} className="min-w-0 flex-1 rounded-[20px] border border-line bg-white p-3.5 active:bg-brand-50">
+      <View className="flex-row items-center justify-between gap-2">
+        <View className="h-9 w-9 items-center justify-center rounded-xl bg-brand-50">
+          <Ionicons name={icon} size={20} color="#2b459f" />
+        </View>
+        <Text className="text-2xl font-extrabold text-ink">{value ?? '—'}</Text>
       </View>
-      <Text className="mt-1 text-right text-xs font-semibold text-slate-500">
-        {progress}%
-      </Text>
-    </View>
+      <Text className="mt-2 text-sm font-bold text-slate-700">{title}</Text>
+    </Pressable>
   );
 }
 
-function TrainingCard({ item }) {
+function HomeRow({ title, detail, icon, label, onPress, warm = false }) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      className="mb-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-card"
-    >
-      <View className="flex-row items-start justify-between">
-        <View className={`h-14 w-14 items-center justify-center rounded-2xl ${item.color}`}>
-          <Text className="text-2xl">📘</Text>
-        </View>
-
-        <View className="rounded-full bg-brand-100 px-3 py-1">
-          <Text className="text-xs font-bold text-brand-700">{item.badge}</Text>
-        </View>
+    <Pressable accessibilityRole="button" accessibilityLabel={label || title} onPress={onPress}
+      className="mb-2 flex-row items-center gap-3 rounded-[20px] border border-line bg-white p-3.5 active:bg-brand-50">
+      <View className={`h-11 w-11 items-center justify-center rounded-[15px] ${warm ? 'bg-orange-100' : 'bg-brand-50'}`}>
+        <Ionicons name={icon} size={22} color={warm ? '#9a3412' : '#2b459f'} />
       </View>
-
-      <Text className="mt-4 text-xl font-extrabold text-slate-900">
-        {item.title}
-      </Text>
-
-      <Text className="mt-2 text-sm leading-6 text-slate-500">
-        {item.description}
-      </Text>
-
-      <View className="mt-4 flex-row items-center justify-between">
-        <Text className="text-sm font-semibold text-slate-600">
-          {item.lessons} хичээл
-        </Text>
-
-        <Text className="text-sm font-bold text-brand-600">
-          Дэлгэрэнгүй →
-        </Text>
+      <View className="min-w-0 flex-1">
+        <Text className="font-extrabold text-ink">{title}</Text>
+        <Text className="mt-0.5 text-sm leading-5 text-slate-600">{detail}</Text>
       </View>
-
-      <ProgressBar progress={item.progress} />
-    </TouchableOpacity>
-  );
-}
-
-function QuizCard({ item }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      className="mb-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-card"
-    >
-      <View className="flex-row items-start justify-between">
-        <View className="h-14 w-14 items-center justify-center rounded-2xl bg-amber-100">
-          <Text className="text-2xl">📝</Text>
-        </View>
-
-        <View
-          className={`rounded-full px-3 py-1 ${
-            item.status === 'Өгсөн'
-              ? 'bg-emerald-100'
-              : 'bg-slate-200'
-          }`}
-        >
-          <Text
-            className={`text-xs font-bold ${
-              item.status === 'Өгсөн'
-                ? 'text-emerald-700'
-                : 'text-slate-700'
-            }`}
-          >
-            {item.status}
-          </Text>
-        </View>
-      </View>
-
-      <Text className="mt-4 text-xl font-extrabold text-slate-900">
-        {item.title}
-      </Text>
-
-      <Text className="mt-2 text-sm text-slate-500">
-        {item.questions} асуулттай сорил
-      </Text>
-
-      <View className="mt-4 flex-row items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-        <View>
-          <Text className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Оноо
-          </Text>
-          <Text className="mt-1 text-lg font-extrabold text-slate-900">
-            {item.score !== null ? `${item.score}%` : '-'}
-          </Text>
-        </View>
-
-        <TouchableOpacity className="rounded-2xl bg-brand-600 px-4 py-2">
-          <Text className="font-bold text-white">
-            {item.status === 'Өгсөн' ? 'Дахин өгөх' : 'Эхлэх'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
+      <Ionicons name="chevron-forward" size={17} color="#64748b" />
+    </Pressable>
   );
 }
 
 export default function MainScreen({ navigation }) {
-  const [activeTab, setActiveTab] = useState('training');
+  const { user } = useAuth();
+  const { exams, courses, entries, refresh } = useLearningActivity();
+  const { width } = useWindowDimensions();
+  const roomy = width >= 720;
+  const name = typeof user?.firstname === 'string' ? user.firstname.trim() : '';
+  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
-  const totalProgress = useMemo(() => {
-    const total = trainingList.reduce((sum, item) => sum + item.progress, 0);
-    return Math.round(total / trainingList.length);
-  }, []);
+  const available = exams?.filter((entry) => ['Хуваарилсан', 'Ажиллаж байна'].includes(entry?.info?.examStatus));
+  const inProgress = available?.find((entry) => entry.info.examStatus === 'Ажиллаж байна' && entry.shalgalt?._id)?.shalgalt;
+  const activeCourses = courses?.filter((entry) => entry?.suraltsagch?.status === 'Худалдаж авсан');
+  const myCourse = activeCourses?.find(({ surgalt }) => surgalt?._id)?.surgalt;
+  const newest = entries.find((entry) => !entry.read);
+
+  const open = (route, params) => {
+    if (Platform.OS === 'web') document.activeElement?.blur?.();
+    navigation.navigate(route, params, { pop: true });
+  };
 
   return (
-    <ScreenWrapper scroll>
-      <View className="mb-5 rounded-3xl bg-brand-600 p-5">
-        <View className="flex-row items-start justify-between">
-          <View className="flex-1 pr-4">
-            <Text className="text-sm font-semibold text-brand-100">
-              Тавтай морил 👋
-            </Text>
-
-            <Text className="mt-2 text-3xl font-extrabold text-white">
-              E-Surgalt
-            </Text>
-
-            <Text className="mt-2 text-sm leading-6 text-brand-100">
-              Өнөөдрийн сургалтаа үргэлжлүүлж, сорилуудаа өгнө үү.
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Profile')}
-            className="h-14 w-14 items-center justify-center rounded-full bg-white/20"
-          >
-            <Text className="text-2xl">👤</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View className="mt-5 rounded-2xl bg-white/10 p-4">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-sm font-semibold text-brand-100">
-              Нийт ахиц
-            </Text>
-            <Text className="text-lg font-extrabold text-white">
-              {totalProgress}%
-            </Text>
-          </View>
-
-          <View className="mt-3 h-3 overflow-hidden rounded-full bg-white/20">
-            <View
-              style={{ width: `${totalProgress}%` }}
-              className="h-3 rounded-full bg-white"
-            />
+    <ScreenWrapper scroll bottomBar={<BottomNavigationBar active="home" navigation={navigation} />}>
+      <ImageBackground source={require('../../assets/campus.jpg')} resizeMode="cover"
+        style={{ marginBottom: 16, borderRadius: 26, overflow: 'hidden', backgroundColor: '#152449' }}
+        imageStyle={{ width: '100%', height: '100%', opacity: 0.38 }}>
+        <View className={roomy ? 'px-7 py-8' : 'px-4 pb-5 pt-5'}>
+          <View className="mb-3 h-1 w-8 rounded-full bg-orange-300" />
+          <Text accessibilityRole="header" className={`${roomy ? 'text-[34px]' : 'text-[27px]'} max-w-xl font-extrabold text-white`}>
+            {name ? `Сайн байна уу, ${name}` : 'Тавтай морил'}
+          </Text>
+          <View className="mt-4 flex-row flex-wrap gap-2">
+            <Pressable accessibilityRole="button" accessibilityLabel="Сургалтууд"
+              onPress={() => open('Training', { tab: 'all' })}
+              className="min-h-[44px] flex-row items-center gap-2 rounded-[14px] bg-white px-3 py-2">
+              <Text className="font-extrabold text-brand-950">Сургалт үзэх</Text>
+              <Ionicons name="arrow-forward" size={17} color="#2b459f" />
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="QR код уншуулах" onPress={() => open('QRScanner')}
+              className="min-h-[44px] flex-row items-center gap-2 rounded-[14px] border border-white/40 bg-brand-950/60 px-3 py-2">
+              <Ionicons name="qr-code-outline" size={18} color="#ffffff" />
+              <Text className="font-bold text-white">QR уншуулах</Text>
+            </Pressable>
           </View>
         </View>
+      </ImageBackground>
+
+      <View className="mb-5 flex-row gap-2">
+        <ActivityCard title="Миний сургалт" value={activeCourses?.length} icon="library-outline"
+          onPress={() => open('Training', { tab: 'mine' })} />
+        <ActivityCard title="Оролцох сорил" value={available?.length} icon="clipboard-outline"
+          onPress={() => inProgress ? open('Quiz', { examId: inProgress._id }) : open('QuizList')} />
       </View>
 
-      <View className="mb-5 flex-row rounded-3xl border border-slate-200 bg-white p-2 shadow-card">
-        <TouchableOpacity
-          onPress={() => setActiveTab('training')}
-          className={`flex-1 rounded-2xl py-3 ${
-            activeTab === 'training'
-              ? 'bg-brand-600'
-              : 'bg-transparent'
-          }`}
-        >
-          <Text
-            className={`text-center text-sm font-bold ${
-              activeTab === 'training'
-                ? 'text-white'
-                : 'text-slate-600'
-            }`}
-          >
-            Сургалт
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setActiveTab('quiz')}
-          className={`flex-1 rounded-2xl py-3 ${
-            activeTab === 'quiz'
-              ? 'bg-brand-600'
-              : 'bg-transparent'
-          }`}
-        >
-          <Text
-            className={`text-center text-sm font-bold ${
-              activeTab === 'quiz'
-                ? 'text-white'
-                : 'text-slate-600'
-            }`}
-          >
-            Сорил
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {activeTab === 'training' ? (
-        <View>
-          <View className="mb-4 flex-row items-center justify-between">
-            <Text className="text-xl font-extrabold text-slate-900">
-              Миний сургалтууд
-            </Text>
-
-            <TouchableOpacity>
-              <Text className="font-bold text-brand-600">Бүгд</Text>
-            </TouchableOpacity>
-          </View>
-
-          {trainingList.map((item) => (
-            <TrainingCard key={item.id} item={item} />
-          ))}
-        </View>
-      ) : (
-        <View>
-          <View className="mb-4 flex-row items-center justify-between">
-            <Text className="text-xl font-extrabold text-slate-900">
-              Миний сорилууд
-            </Text>
-
-            <TouchableOpacity>
-              <Text className="font-bold text-brand-600">Бүгд</Text>
-            </TouchableOpacity>
-          </View>
-
-          {quizList.map((item) => (
-            <QuizCard key={item.id} item={item} />
-          ))}
+      {(inProgress || myCourse) && (
+        <View className="mb-4">
+          <Text accessibilityRole="header" className="mb-2 text-lg font-extrabold text-ink">Үргэлжлүүлэх</Text>
+          {!!inProgress && <HomeRow title="Сорил үргэлжлүүлэх" detail={inProgress.name || 'Сорил'} icon="play-outline"
+            onPress={() => open('Quiz', { examId: inProgress._id })} />}
+          {!!myCourse && <HomeRow title="Миний сургалт үзэх" detail={myCourse.name || 'Сургалт'} icon="book-outline"
+            onPress={() => open('Course', { courseId: myCourse._id })} />}
         </View>
       )}
+
+      {!!newest && <HomeRow title={newest.title} detail={newest.name} icon="notifications-outline" warm
+        label="Сүүлийн мэдэгдлийг харах" onPress={() => open('Notifications')} />}
+      <HomeRow title="ЭЕШ-ын сорил" detail="Хичээлээр хайж, сорил сонгох" icon="document-text-outline"
+        onPress={() => open('QuizList')} />
     </ScreenWrapper>
   );
 }
