@@ -105,10 +105,12 @@ export default function SorilList() {
   useEffect(() => {
     const controller = new AbortController();
     setRequest({ status: "loading", exams: [] });
-    getPublicExams(stype, controller.signal).then((exams) => {
+    getPublicExams(stype, controller.signal, (exams) => {
+      setRequest({ status: "loading", exams });
+    }).then((exams) => {
       if (!controller.signal.aborted) setRequest({ status: "ready", exams });
     }).catch(() => {
-      if (!controller.signal.aborted) setRequest({ status: "error", exams: [] });
+      if (!controller.signal.aborted) setRequest((current) => ({ ...current, status: "error" }));
     });
     return () => controller.abort();
   }, [stype, getPublicExams, attempt]);
@@ -176,20 +178,21 @@ export default function SorilList() {
       </div>
 
       <div className="mt-5" aria-busy={request.status === "loading"}>
-        {request.status === "error" ? (
+        {request.status === "error" && (
           <CollectionState state="error" title="Сорилыг ачаалж чадсангүй" actionLabel="Дахин оролдох" action={() => setAttempt((value) => value + 1)} />
-        ) : request.status === "loading" ? (
+        )}
+        {request.status === "loading" && !request.exams.length ? (
           <CollectionState state="loading" title="Сорилуудыг ачаалж байна…" />
-        ) : (
+        ) : (request.status === "ready" || request.exams.length > 0) && (
           <>
             <p role="status" className="mb-4 text-sm font-bold text-slate-600 dark:text-slate-300">
-              {visibleExams.length === request.exams.length ? `Нийт ${request.exams.length} сорил` : `${request.exams.length} сорилоос ${visibleExams.length} таарлаа`}
+              {request.status === "loading" ? "Үлдсэн сорилуудыг ачаалж байна…" : request.status === "error" ? "Жагсаалт бүрэн ачаалагдаагүй" : visibleExams.length === request.exams.length ? `Нийт ${request.exams.length} сорил` : `${request.exams.length} сорилоос ${visibleExams.length} таарлаа`}
             </p>
             {visibleExams.length ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
                 {visibleExams.map((exam) => <ExamCard key={exam._id} exam={exam} enroll={enroll} pendingExam={pendingExam} onResults={setResultsExam} headingLevel="h2" />)}
               </div>
-            ) : (
+            ) : request.status === "ready" && (
               <CollectionState state="empty" title="Сорил олдсонгүй" detail={hasFilters ? "Өөр нэрээр хайх эсвэл шүүлтүүрээ өөрчлөөрэй." : undefined} />
             )}
           </>

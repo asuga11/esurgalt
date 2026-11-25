@@ -2,7 +2,7 @@ import { Dialog, Transition } from "@headlessui/react";
 import { InformationCircleIcon } from "@heroicons/react/24/outline";
 import { Fragment } from "react";
 
-export default function EndExam({ closeModal, onConfirm, isSaving }) {
+export default function EndExam({ closeModal, onConfirm, isSaving, hasDrafts }) {
   return (
     <Transition appear show={true} as={Fragment}>
       <Dialog as="div" className="relative z-[90]" onClose={closeModal}>
@@ -60,6 +60,7 @@ export default function EndExam({ closeModal, onConfirm, isSaving }) {
                       <h3 className="mb-5 text-lg font-normal text-gray-500 dark:text-gray-400 uppercase">
                         Та дуусгахад итгэлтэй байна уу?
                       </h3>
+                      {hasDrafts && <p className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-300">Хадгалаагүй ноорог байна. Дуусгахад зөвхөн хадгалсан хариулт тооцогдоно.</p>}
                       <button
                         onClick={onConfirm}
                         disabled={isSaving}

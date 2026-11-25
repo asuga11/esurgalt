@@ -66,7 +66,18 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     dunMember,
   } = useContext(MainContext);
 
-  const [answer, setanswer] = useState(null);
+  const draftKey = `exam-drafts:${encodeURIComponent(memberId)}:${encodeURIComponent(eid)}`;
+  const [drafts, setDrafts] = useState(() => {
+    if (readOnly) return {};
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(draftKey));
+      return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    } catch {
+      return {};
+    }
+  });
+  const draftValues = useRef(drafts);
+  const [draftStorageError, setDraftStorageError] = useState(false);
   const [dunOpen, setDunOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [warningCount, setWarningCount] = useState(0);
@@ -74,6 +85,8 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
   const mutationPending = useRef(false);
   const answerPending = useRef(null);
   const [isAnswerSaving, setIsAnswerSaving] = useState(false);
+  const [answerSaveState, setAnswerSaveState] = useState(null);
+  const [timeExpired, setTimeExpired] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [loadState, setLoadState] = useState("loading");
   const [reload, setReload] = useState(0);
@@ -86,6 +99,31 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
   const templateId = selectedTest?.testsan_id?._id;
   const examId = memberExamOne?.shalgalt?._id;
   const isWorking = !readOnly && loadState === "ready" && memberExamOne?.info?.examStatus === "Ажиллаж байна";
+  const draftId = (field) => `${questionId}:${field}`;
+  const hasCurrentDraft = Object.keys(drafts).some((key) => key.startsWith(`${questionId}:`));
+  const currentAnswerSave = answerSaveState && answerSaveState.questionId === questionId ? answerSaveState : null;
+  const writeDrafts = (values) => {
+    draftValues.current = values;
+    setDrafts(values);
+    try {
+      if (Object.keys(values).length) sessionStorage.setItem(draftKey, JSON.stringify(values));
+      else sessionStorage.removeItem(draftKey);
+      setDraftStorageError(false);
+    } catch {
+      setDraftStorageError(true);
+    }
+  };
+  const changeDraft = (key, value) => {
+    const next = { ...draftValues.current };
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+    writeDrafts(next);
+  };
+  const clearCompletedDrafts = useEffectEvent(() => writeDrafts({}));
+  const isCompleted = !readOnly && loadState === "ready" && memberExamOne?.info?.examStatus === "Дууссан";
+  useEffect(() => {
+    if (isCompleted) clearCompletedDrafts();
+  }, [isCompleted]);
 
   useEffect(() => {
     if (!eid || !memberId) return;
@@ -99,9 +137,13 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
   }, [eid, memberId, readOnly, reload]);
 
   const saveAnswer = (save, ...args) => {
-    if (mutationPending.current || answerPending.current) return;
+    if (timeExpired || mutationPending.current || answerPending.current) return;
     setIsAnswerSaving(true);
-    answerPending.current = save(...args).finally(() => {
+    setAnswerSaveState(null);
+    answerPending.current = Promise.resolve().then(() => save(...args)).catch(() => false).then((saved) => {
+      setAnswerSaveState({ questionId, saved });
+      return saved;
+    }).finally(() => {
       answerPending.current = null;
       setIsAnswerSaving(false);
     });
@@ -153,15 +195,19 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
 
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase();
+      const hasModifier = e.ctrlKey || e.metaKey;
+      const opensDevTools = (e.ctrlKey && e.shiftKey) || (e.metaKey && e.altKey);
 
       const blocked =
-        e.key === "F12" ||
-        (e.ctrlKey && e.shiftKey && ["i", "j", "c"].includes(key)) ||
-        (e.ctrlKey && ["u", "s", "p", "c", "x", "a"].includes(key));
+        ["f5", "f11", "f12"].includes(key) ||
+        (hasModifier && ["r", "s", "p", "u"].includes(key)) ||
+        (opensDevTools && ["i", "j", "c"].includes(key)) ||
+        (e.ctrlKey && e.metaKey && key === "f") ||
+        (e.ctrlKey && ["c", "x", "a"].includes(key));
 
       if (blocked) {
         e.preventDefault();
-        addWarning("Хориглосон shortcut ашиглах оролдлого.");
+        if (!e.repeat) addWarning("Хориглосон shortcut ашиглах оролдлого.");
       }
     };
 
@@ -174,7 +220,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("copy", handleCopyCut);
     document.addEventListener("cut", handleCopyCut);
-    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
 
@@ -186,7 +232,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("copy", handleCopyCut);
       document.removeEventListener("cut", handleCopyCut);
-      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener(
         "webkitfullscreenchange",
@@ -307,7 +353,10 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     try {
       await answerPending.current;
       if (await updateExamMember(examId, { _id: examMemberId, examStatus: "Дууссан" })) {
+        writeDrafts({});
         setEndOpen(false);
+      } else {
+        await getMemberExamOne(examId, examMemberId);
       }
     } finally {
       mutationPending.current = false;
@@ -324,7 +373,6 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     if (!nextQuestion?._id) return;
 
     getshalgaltDun(nextQuestion._id);
-    setanswer(null);
   };
 
   const goPrevQuestion = () => {
@@ -355,6 +403,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
         <EndExam
           closeModal={() => setEndOpen(false)}
           onConfirm={finishExam}
+          hasDrafts={Object.keys(drafts).length > 0}
           isSaving={isSaving}
         />
       )}
@@ -427,7 +476,10 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                       <TimerMember
                         exDate={memberExamOne.info.memberTime}
                         css="tracking-widest font-bold"
-                        onExpire={finishExam}
+                        onExpire={() => {
+                          setTimeExpired(true);
+                          finishExam();
+                        }}
                       />
                     </div>
                   </div>
@@ -457,7 +509,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                       disabled={isSaving}
                     >
                       <ArrowLeftOnRectangleIcon className="h-5 w-5" />
-                      Дуусгах
+                      {timeExpired ? "Илгээхийг дахин оролдох" : "Дуусгах"}
                     </button>
 
                     {!isFullscreenState && (
@@ -548,7 +600,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                       </div>
                     </div>
 
-                    <fieldset disabled={isSaving || isAnswerSaving} className="min-w-0 p-4 xl:p-6">
+                    <fieldset disabled={timeExpired || isSaving || isAnswerSaving} className="min-w-0 p-4 xl:p-6">
                       <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-400 xl:text-sm">
                         Хариулт
                       </p>
@@ -559,6 +611,15 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                         </button>
                       )}
 
+                      {timeExpired && <p role="status" className="text-sm font-bold text-amber-700 dark:text-amber-300">Хугацаа дууссан. Хадгалсан хариултыг илгээнэ.</p>}
+                      {!timeExpired && (isAnswerSaving || hasCurrentDraft || currentAnswerSave) && (
+                        <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
+                          {isAnswerSaving ? "Хадгалж байна…" : currentAnswerSave?.saved === false
+                            ? "Хадгалж чадсангүй. Дахин оролдоно уу."
+                            : hasCurrentDraft ? "Хадгалаагүй ноорог" : "Хадгалагдсан"}
+                        </p>
+                      )}
+                      {draftStorageError && <p role="status" className="text-sm text-amber-700">Нооргийг энэ хөтөч дээр хадгалж чадсангүй.</p>}
                       {testType === "Задгай даалгавар" && (
                         <div className="space-y-3">
                           {savedAnswers.map((item) => (
@@ -569,24 +630,18 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
 
                               <input
                                 maxLength={1}
-                                key={item.value}
-                                defaultValue={item.value}
-                                onBlur={(e) => {
-                                  if (e.target.value === (item.value ?? "")) return;
-                                  saveAnswer(workTest2,
-                                    selectedTest?._id,
-                                    {
-                                      _id: item._id,
-                                      value: e.target.value,
-                                    },
-                                    memberExamOne?.shalgalt?._id,
-                                    selectedTest?.testsan_id?._id
-                                  );
-                                }}
+                                aria-label={item.answer || "Хариулт"}
+                                value={drafts[draftId(item._id)] ?? item.value ?? ""}
+                                onChange={(event) => changeDraft(draftId(item._id), event.target.value)}
                                 type="text"
                                 className="w-full rounded-r-lg border border-slate-200 bg-white p-3 text-base outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
                                 placeholder="Хариулт"
                               />
+                              <button type="button" className="app-button-secondary" disabled={drafts[draftId(item._id)] === undefined}
+                                onClick={async () => {
+                                  const key = draftId(item._id);
+                                  if (await saveAnswer(workTest2, questionId, { _id: item._id, value: drafts[key] }, examId, templateId)) changeDraft(key);
+                                }}>Хадгалах</button>
                             </div>
                           ))}
                         </div>
@@ -595,27 +650,25 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                       {testType === "Эсээ" && (
                         <div className="space-y-3">
                           <textarea
-                            onChange={(e) => {
-                              setanswer({
-                                value: e.target.value,
-                              });
-                            }}
+                            aria-label="Эсээний хариулт"
+                            onChange={(event) => changeDraft(draftId("essay"), event.target.value)}
                             rows={8}
                             className="w-full rounded-lg border border-slate-200 bg-white p-4 text-base outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
                             placeholder="Эсээ бичих..."
-                            defaultValue={savedAnswers[0]?.value ?? ""}
+                            value={drafts[draftId("essay")] ?? savedAnswers[0]?.value ?? ""}
                           />
 
                           <button
                             type="button"
-                            onClick={() => {
-                              if (savedAnswers[0]?._id) {
-                                saveAnswer(workTest2, questionId, { ...answer, _id: savedAnswers[0]._id }, examId, templateId);
-                              } else {
-                                saveAnswer(workTest, questionId, templateId, [{ ...answer, _id: templateId }], examId);
-                              }
+                            onClick={async () => {
+                              const key = draftId("essay");
+                              const value = drafts[key];
+                              const saved = savedAnswers[0]?._id
+                                ? await saveAnswer(workTest2, questionId, { value, _id: savedAnswers[0]._id }, examId, templateId)
+                                : await saveAnswer(workTest, questionId, templateId, [{ value, _id: templateId }], examId);
+                              if (saved) changeDraft(key);
                             }}
-                            disabled={!answer}
+                            disabled={drafts[draftId("essay")] === undefined}
                             className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50 xl:text-base"
                           >
                             Хадгалах
@@ -628,13 +681,9 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                           {savedAnswers.map((item) => (
                             <div key={item._id} className="flex">
                               <input
-                                defaultValue={item.value}
-                                onChange={(e) => {
-                                  setanswer({
-                                    _id: item._id,
-                                    value: e.target.value,
-                                  });
-                                }}
+                                aria-label="Нөхөх хариулт"
+                                value={drafts[draftId(item._id)] ?? item.value ?? ""}
+                                onChange={(event) => changeDraft(draftId(item._id), event.target.value)}
                                 type="text"
                                 className="w-full rounded-l-lg border border-slate-200 bg-white p-3 text-base outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
                                 placeholder="Хариулт оруулах"
@@ -642,14 +691,10 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
 
                               <button
                                 type="button"
-                                disabled={!answer || answer._id !== item._id}
-                                onClick={() => {
-                                  saveAnswer(workTest2,
-                                    selectedTest?._id,
-                                    answer,
-                                    memberExamOne?.shalgalt?._id,
-                                    selectedTest?.testsan_id?._id
-                                  );
+                                disabled={drafts[draftId(item._id)] === undefined}
+                                onClick={async () => {
+                                  const key = draftId(item._id);
+                                  if (await saveAnswer(workTest2, questionId, { _id: item._id, value: drafts[key] }, examId, templateId)) changeDraft(key);
                                 }}
                                 className="rounded-r-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 xl:text-base"
                               >
@@ -670,6 +715,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                             return (
                               <li key={item._id}>
                                 <button
+                                  aria-pressed={checked}
                                   type="button"
                                   onClick={() => {
                                     if (testType === "Олон сонголттой") {
@@ -786,7 +832,6 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                         key={`text-${item._id || index}`}
                         onClick={() => {
                           getshalgaltDun(item._id);
-                          setanswer(null);
                         }}
                         className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-bold text-white dark:bg-slate-700 xl:text-sm"
                       >
@@ -800,7 +845,6 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                         key={item._id}
                         onClick={() => {
                           getshalgaltDun(item._id);
-                          setanswer(null);
                         }}
                         className={`h-8 min-w-8 rounded-md px-2 text-sm font-bold transition xl:h-9 xl:min-w-9 xl:text-base ${
                           selectedTest?._id === item._id
@@ -820,7 +864,6 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                         key={`essay-${item._id || index}`}
                         onClick={() => {
                           getshalgaltDun(item._id);
-                          setanswer(null);
                         }}
                         className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-bold text-white xl:text-sm"
                       >

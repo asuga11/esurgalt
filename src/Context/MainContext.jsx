@@ -736,7 +736,7 @@ export const MainStore = ({ children }) => {
         return true;
       })
       .catch((error) => {
-        toast.error(error.response.data.error);
+        toast.error(error.response?.data?.error || "Хариулт хадгалагдсан эсэхийг шалгаж чадсангүй.");
         return false;
       });
   };
@@ -758,7 +758,7 @@ export const MainStore = ({ children }) => {
         return true;
       })
       .catch((error) => {
-        toast.error(error.response.data.error);
+        toast.error(error.response?.data?.error || "Хариулт хадгалагдсан эсэхийг шалгаж чадсангүй.");
         return false;
       });
   };
@@ -897,7 +897,7 @@ export const MainStore = ({ children }) => {
       .catch((error) => toast.error(error.response.data.error));
   };
 
-  const getPublicExams = useCallback(async (examType, signal) => {
+  const getPublicExams = useCallback(async (examType, signal, onFirstPage) => {
     const exams = new Map();
     let page = 1;
 
@@ -918,6 +918,7 @@ export const MainStore = ({ children }) => {
 
       const pageCount = Number(data.pagination?.pageCount);
       if (!Number.isSafeInteger(pageCount) || page >= pageCount) break;
+      if (page === 1 && !signal.aborted) onFirstPage?.([...exams.values()]);
       page += 1;
     }
 
@@ -959,7 +960,7 @@ export const MainStore = ({ children }) => {
       .catch((error) => toast.error(error.response.data.error));
   };
   const addExam = (newExam) => {
-    axios
+    return axios
       .post(`shalgalt`, newExam, {
         headers: {
           "Content-Type": "application/json",
@@ -967,19 +968,18 @@ export const MainStore = ({ children }) => {
           Authorization: `Bearer ${token}`,
         },
       })
-      .then((res) => {
+      .then(() => {
         toast.success("Амжилттай");
         getExams(user.id);
+        return true;
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .catch((error) => {
+        toast.error(error.response?.data?.error || "Сорил хадгалагдсангүй.");
+        return false;
+      });
   };
   const updateExam = (data) => {
-    setExamState({
-      shalgalt: [],
-      success: false,
-      pagination: {},
-    });
-    axios
+    return axios
       .put(`shalgalt/${data._id}`, data, {
         headers: {
           "Content-Type": "application/json",
@@ -994,8 +994,12 @@ export const MainStore = ({ children }) => {
         } else {
           getExams(user.id);
         }
+        return true;
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .catch((error) => {
+        toast.error(error.response?.data?.error || "Сорил шинэчлэгдсэнгүй.");
+        return false;
+      });
   };
   const deleteExam = (id) => {
     axios
@@ -1103,7 +1107,7 @@ export const MainStore = ({ children }) => {
         return true;
       })
       .catch((error) => {
-        toast.error(error.response.data.error);
+        toast.error(error.response?.data?.error || "Сорилын төлөв шинэчлэгдсэн эсэхийг шалгаж чадсангүй.");
         return false;
       });
   };

@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 function readDuration(value) {
   if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "") {
@@ -11,25 +11,27 @@ function readDuration(value) {
 export default function TimerMember({ exDate, css, onExpire }) {
   const duration = readDuration(exDate);
   const [remaining, setRemaining] = useState(() => Math.ceil((duration ?? 0) / 1000));
+  const deadline = useRef(null);
+  const expired = useRef(false);
   const expire = useEffectEvent(onExpire);
 
   useEffect(() => {
     if (duration === null) return;
 
-    const deadline = Date.now() + duration;
-    let expired = false;
+    const reportedDeadline = Date.now() + duration;
+    deadline.current = Math.min(deadline.current ?? reportedDeadline, reportedDeadline);
     const update = () => {
-      if (expired) return;
-      const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      if (expired.current) return;
+      const seconds = Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000));
       setRemaining(seconds);
       if (seconds === 0) {
-        expired = true;
+        expired.current = true;
         expire();
       }
     };
 
     update();
-    if (expired) return;
+    if (expired.current) return;
     const interval = window.setInterval(update, 250);
     document.addEventListener("visibilitychange", update);
     return () => {

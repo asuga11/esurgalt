@@ -9,7 +9,7 @@ import {
   TrashIcon,
   XMarkIcon,
 } from "@heroicons/react/24/solid";
-import React, { Fragment, useContext, useEffect, useState } from "react";
+import React, { Fragment, useContext, useEffect, useRef, useState } from "react";
 import { Dialog, Disclosure, Transition } from "@headlessui/react";
 import { useHref } from "react-router-dom";
 import moment from "moment";
@@ -79,8 +79,12 @@ const ExamList = () => {
   const sharePath = useHref(shareExam ? `/e/${shareExam._id}` : "/");
   const shareUrl = new URL(sharePath, window.location.origin).href;
   const [edit, setedit] = useState(false);
+  const [savingExam, setSavingExam] = useState(false);
+  const examSavePending = useRef(false);
+  const [examFormError, setExamFormError] = useState("");
   const handleChangeeExam = (prop) => (event) => {
-    setExam({ ...exam, [prop]: event.target.value });
+    setExam((current) => ({ ...current, [prop]: event.target.value }));
+    setExamFormError("");
   };
   let [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
@@ -94,8 +98,39 @@ const ExamList = () => {
   let [isOpen, setIsOpen] = useState(false);
 
   function closeModal() {
+    if (examSavePending.current) return;
+    setExamFormError("");
     setExam(null);
     setIsOpen(false);
+  }
+
+  async function saveExam() {
+    if (examSavePending.current || !exam) return;
+    const { listMembers, listTests, ...values } = exam;
+    const name = values.name?.trim();
+    const duration = Number(values.examTime);
+    const error = !name ? "Сорилын нэрээ оруулна уу."
+      : !Number.isSafeInteger(duration) || duration <= 0 ? "Хугацааг эерэг бүхэл минутаар оруулна уу."
+      : values.isStartTime === true && (!values.examDate || !moment(values.examDate).isValid()) ? "Сорил эхлэх огноо, цагаа оруулна уу."
+      : "";
+    setExamFormError(error);
+    if (error) return;
+
+    examSavePending.current = true;
+    setSavingExam(true);
+    try {
+      const save = edit ? updateExam : addExam;
+      const saved = await save({ ...values, name });
+      if (saved) {
+        setExam(null);
+        setIsOpen(false);
+      } else {
+        setExamFormError("Тохиргоог хадгалж чадсангүй. Дахин оролдоно уу.");
+      }
+    } finally {
+      examSavePending.current = false;
+      setSavingExam(false);
+    }
   }
 
   function openModal() {
@@ -1032,21 +1067,22 @@ const ExamList = () => {
                                   </div>
                                 </div>
 
+                                <Disclosure>
+                                  <Disclosure.Button className="app-button-secondary mb-2" type="button">Урьдчилан харах</Disclosure.Button>
+                                  <Disclosure.Panel className="app-panel mb-3 space-y-2 p-4">
+                                    <h3 className="font-extrabold">{exam.name || "Сорилын нэр"}</h3>
+                                    <p className="text-sm">{[exam.examType, exam.lessonName, exam.examTime && `${exam.examTime} минут`].filter(Boolean).join(" · ")}</p>
+                                    {exam.introduction && <p className="whitespace-pre-wrap text-sm">{exam.introduction}</p>}
+                                  </Disclosure.Panel>
+                                </Disclosure>
+                                {examFormError && <p role="alert" className="mb-2 text-sm font-bold text-red-700 dark:text-red-300">{examFormError}</p>}
                                 <button
-                                  onClick={() => {
-                                    delete exam?.listMembers;
-                                    delete exam?.listTests;
-                                    if (edit) {
-                                      updateExam(exam);
-                                    } else {
-                                      addExam(exam);
-                                    }
-                                    closeModal();
-                                  }}
-                                  type="submit"
+                                  onClick={saveExam}
+                                  type="button"
+                                  disabled={savingExam}
                                   className="w-full  text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
                                 >
-                                  Хадгалах
+                                  {savingExam ? "Хадгалж байна…" : "Хадгалах"}
                                 </button>
                               </div>
                             )}

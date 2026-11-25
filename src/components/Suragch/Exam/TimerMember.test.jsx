@@ -27,3 +27,17 @@ test("does not submit when the duration is missing", () => {
   expect(screen.getByText("Хугацаа тодорхойгүй")).toBeInTheDocument();
   expect(onExpire).not.toHaveBeenCalled();
 });
+
+test("does not extend the deadline when a later response has stale remaining time", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2025-01-01T00:00:00Z"));
+  const onExpire = vi.fn();
+  const { rerender } = render(<TimerMember exDate={60_000} onExpire={onExpire} />);
+
+  act(() => vi.advanceTimersByTime(15_000));
+  rerender(<TimerMember exDate={55_000} onExpire={onExpire} />);
+  expect(screen.getByText("00:00:45")).toBeInTheDocument();
+
+  act(() => vi.advanceTimersByTime(45_000));
+  expect(onExpire).toHaveBeenCalledTimes(1);
+});
