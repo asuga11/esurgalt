@@ -67,7 +67,7 @@ test("keeps a failed sign-in message next to the form and clears it on edit", as
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
-test("opens the complete exam catalog directly from the header and filters every page", async () => {
+test("opens the complete exam catalog from the header exam menu and filters every page", async () => {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   const examType = "ЭЕШ-ын сорил";
   const exams = [
@@ -82,7 +82,8 @@ test("opens the complete exam catalog directly from the header and filters every
   }, async () => {
     openDashboard("/login");
     const mainNav = await screen.findByRole("navigation", { name: "Үндсэн цэс", exact: true }, { timeout: 3000 });
-    fireEvent.click(within(mainNav).getByRole("link", { name: "Сорил", exact: true }));
+    fireEvent.click(within(mainNav).getByRole("button", { name: "Сорил", exact: true }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "ЭЕШ-ын сорил" }));
     const subject = await screen.findByLabelText("Хичээл", { exact: true }, { timeout: 3000 });
     const search = screen.getByRole("searchbox", { name: "Сорил хайх" });
 
