@@ -1,16 +1,18 @@
 import { useContext, useEffect, useState } from "react";
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
 import { MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import MainContext from "../../Context/MainContext";
 import CollectionState from "../General/CollectionState";
 import ExamCard from "./ExamCard";
 import useExamEnrollment from "./useExamEnrollment";
 
 function ResultsDialog({ exam, onClose }) {
-  const { getOpenDun, openDunState, getExamMemberResult, dunMember, user } = useContext(MainContext);
+  const { getOpenDun, openDunState, fetchExamMemberResult, user } = useContext(MainContext);
   const [status, setStatus] = useState("loading");
   const [attempt, setAttempt] = useState(0);
+  const [personalResult, setPersonalResult] = useState(null);
+  const memberId = user?.id ?? user?._id ?? user?.sub;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -18,11 +20,13 @@ function ResultsDialog({ exam, onClose }) {
     getOpenDun(exam._id, controller.signal).then((success) => {
       if (!controller.signal.aborted) setStatus(success ? "ready" : "error");
     });
-    if (user?.id) getExamMemberResult(exam._id, user.id, controller.signal);
+    if (memberId) fetchExamMemberResult(exam._id, memberId, controller.signal).then((data) => {
+      if (!controller.signal.aborted) setPersonalResult({ memberId, score: data?.success === false ? null : data?.shalgaltdun });
+    }).catch(() => {});
     return () => controller.abort();
-  }, [attempt, exam._id, getExamMemberResult, getOpenDun, user?.id]);
+  }, [attempt, exam._id, fetchExamMemberResult, getOpenDun, memberId]);
 
-  const personal = user && dunMember.success ? dunMember.shalgaltdun : null;
+  const personal = personalResult?.memberId === memberId ? personalResult?.score : null;
   const results = openDunState.shalgaltduns || [];
 
   return (
@@ -40,9 +44,9 @@ function ResultsDialog({ exam, onClose }) {
             </button>
           </div>
           {personal && (
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-orange-50 p-3 text-sm dark:bg-orange-950/45">
-              <div className="min-w-0"><p className="font-extrabold">{personal.member_name}</p><p>{personal.member_school}</p></div>
-              <p className="shrink-0 font-extrabold text-orange-800 dark:text-orange-300">{personal.onooZuvHariu} оноо</p>
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-orange-50 p-4 text-sm dark:bg-orange-950/45">
+              <p className="font-extrabold">Миний дүн</p>
+              <p className="shrink-0 text-lg font-extrabold text-orange-800 dark:text-orange-300">{personal.onooZuvHariu ?? "—"} оноо</p>
             </div>
           )}
           <div className="mt-5">
@@ -87,7 +91,7 @@ const sortByDuration = (a, b) => duration(a) - duration(b) || sortByName(a, b);
 const sorters = { newest: sortByNewest, name: sortByName, duration: sortByDuration };
 
 export default function SorilList() {
-  const { getPublicExams } = useContext(MainContext);
+  const { getPublicExams, sorilType, user } = useContext(MainContext);
   const { stype } = useParams();
   const { enroll, pendingExam } = useExamEnrollment();
   const [params, setParams] = useSearchParams();
@@ -101,12 +105,14 @@ export default function SorilList() {
   const sort = Object.hasOwn(sorters, requestedSort) ? requestedSort : "newest";
   const publishedOnly = params.get("results") === "1";
   const hasFilters = Boolean(query || subject || sort !== "newest" || publishedOnly);
+  const availableTypes = Array.isArray(sorilType?.content) ? sorilType.content.map((item) => item?.examType) : [];
+  const categories = [...new Set([stype, ...availableTypes])].filter((type) => typeof type === "string" && type.trim());
 
   useEffect(() => {
     const controller = new AbortController();
     setRequest({ status: "loading", exams: [] });
     getPublicExams(stype, controller.signal, (exams) => {
-      setRequest({ status: "loading", exams });
+      if (!controller.signal.aborted) setRequest({ status: "loading", exams });
     }).then((exams) => {
       if (!controller.signal.aborted) setRequest({ status: "ready", exams });
     }).catch(() => {
@@ -138,9 +144,16 @@ export default function SorilList() {
   };
 
   return (
-    <section className="app-container py-7 sm:py-12" aria-labelledby="exam-catalog">
-      <h1 id="exam-catalog" className="text-3xl font-extrabold tracking-tight sm:text-4xl">{stype}</h1>
-      <div className="app-panel mt-5 space-y-4 p-4 sm:mt-6 sm:p-5">
+    <section className="app-container py-7 sm:py-12" aria-labelledby="page-title">
+      <div className="app-banner mb-5 flex flex-wrap items-center justify-between gap-4 p-5 sm:px-7">
+        <p className="text-xl font-extrabold sm:text-2xl">Сорилын сан</p>
+        {["suragch", "Student"].includes(user?.role) && <Link to="/control/soril" className="app-button-primary">Миний сорилууд</Link>}
+      </div>
+      {categories.length > 1 && <nav aria-label="Сорилын ангилал" className="mb-4 flex flex-wrap gap-2">
+        {categories.map((type) => <Link key={type} to={`/soril/${encodeURIComponent(type)}`} aria-current={type === stype ? "page" : undefined}
+          className="app-filter-chip">{type}</Link>)}
+      </nav>}
+      <div className="app-panel space-y-4 p-4 sm:p-5">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <div className="min-w-0 sm:col-span-2 lg:col-span-1">
             <label htmlFor="exam-search" className="mb-2 block text-sm font-bold">Сорил хайх</label>

@@ -11,10 +11,14 @@ import MainContext from "../../Context/MainContext";
 import { Dialog, Transition } from "@headlessui/react";
 import { TrashIcon } from "@heroicons/react/24/solid";
 import ReactPlayer from "react-player";
+import { Link } from "react-router-dom";
 import { AiOutlineCloudUpload } from "react-icons/ai";
 import JoditEditor from "jodit-react";
 import { sanitizeRichText } from "../../renderRichText";
 import { coursePrice } from "../../components/Surgalt/coursePrice";
+import CourseWatchDialog from "../../components/Surgalt/CourseWatchDialog";
+import { courseVideoUrl } from "../../components/Surgalt/courseVideoUrl";
+import { coursePlayerConfig } from "../../components/Surgalt/coursePlayerConfig";
 import { decode } from "html-entities";
 function BagshSurgalt({ themes }) {
   const {
@@ -22,6 +26,7 @@ function BagshSurgalt({ themes }) {
     surgaltState,
     user,
     getBagshSurgaltOne,
+    getManagedCourse,
     surgaltStateOne,
     setsurgaltStateOne,
     addSurgalt,
@@ -49,6 +54,7 @@ function BagshSurgalt({ themes }) {
     getAngilal();
   }, []);
   const [data, setData] = useState({});
+  const [watchCourse, setWatchCourse] = useState(null);
   let [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   function openDeleteModal() {
@@ -107,9 +113,12 @@ function BagshSurgalt({ themes }) {
     uploadLessonVideo(surgaltStateOne._id, photo, setlesson);
   };
   const [edit, setedit] = useState(false);
+  const lessonVideoUrl = courseVideoUrl(lesson?.url, lesson?.lessonType);
 
   return (
     <div>
+      {watchCourse && <CourseWatchDialog key={watchCourse._id} course={watchCourse}
+        loadCourse={getManagedCourse} onClose={() => setWatchCourse(null)} />}
       <Transition appear show={lessonModal} as={Fragment}>
         <Dialog as="div" className="relative z-10" onClose={() => {}}>
           <Transition.Child
@@ -282,14 +291,14 @@ function BagshSurgalt({ themes }) {
                           </div>
                         </div>
 
-                        {lesson.url !== "" && lesson.url && (
+                        {lessonVideoUrl && (
                           <div className="border">
                             <ReactPlayer
+                              config={coursePlayerConfig}
                               width="100%"
                               height="200px"
                               controls
-                              src={`${uploadBaseUrl}/surgalt/videos/${lesson.url}`}
-                              // src={lesson.url}
+                              src={lessonVideoUrl}
                             />
                           </div>
                         )}
@@ -622,6 +631,7 @@ function BagshSurgalt({ themes }) {
                                   required
                                 />
                                 <ReactPlayer
+                                  config={coursePlayerConfig}
                                   width="100%"
                                   height="150px"
                                   controls
@@ -1007,6 +1017,7 @@ function BagshSurgalt({ themes }) {
       >
         Шинэ сургалт нэмэх
       </button>
+      <Link to="/training" className="app-button-secondary mb-2">Бүх сургалт үзэх</Link>
       <div className="flex gap-4 items-end mb-2">
         {user?.role === "admin" && (
           <div className="w-auto ">
@@ -1117,10 +1128,15 @@ function BagshSurgalt({ themes }) {
             </tr>
           </thead>
           <tbody>
-            {surgaltState.surgalt?.map((i, index) => {
+            {!surgaltState.surgalt?.length && (
+              <tr><td colSpan={5} className="px-6 py-5 text-sm font-semibold">
+                {user?.role === "admin" && !data.bagsh ? "Сургалтыг жагсаахын тулд багш сонгоно уу." : "Сургалт олдсонгүй."}
+              </td></tr>
+            )}
+            {surgaltState.surgalt?.map((i) => {
               const price = coursePrice(i);
               return (
-                <tr className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                <tr key={i._id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
                   <th
                     scope="row"
                     className="px-2 py-4 font-medium text-gray-900 whitespace-nowrap dark:text-white text-center"
@@ -1151,6 +1167,10 @@ function BagshSurgalt({ themes }) {
                     )}
                   </td>
                   <td className="px-2 py-4 flex gap-8">
+                    <button type="button" onClick={() => setWatchCourse(i)}
+                      className="font-bold text-orange-800 hover:underline dark:text-orange-300">
+                      Үзэх
+                    </button>
                     <button
                       onClick={() => {
                         setedit(true);

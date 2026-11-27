@@ -1,5 +1,6 @@
 import {
   ArrowPathIcon,
+  ChartBarIcon,
   ClockIcon,
   DocumentChartBarIcon,
   DocumentPlusIcon,
@@ -9,7 +10,7 @@ import {
   TrashIcon,
   XMarkIcon,
 } from "@heroicons/react/24/solid";
-import React, { Fragment, useContext, useEffect, useRef, useState } from "react";
+import React, { Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, Disclosure, Transition } from "@headlessui/react";
 import { useHref } from "react-router-dom";
 import moment from "moment";
@@ -30,6 +31,9 @@ import ShalgaltList from "../Suragch/ShalgaltList";
 import { toast } from "react-hot-toast";
 import ExamTestPrint from "./ExamTestPrint";
 import ExamMemberPrint from "./ExamMemberPrint";
+import ExamProgress from "./ExamProgress";
+import { getExamIssues } from "./examReadiness";
+import { ExamIssues, ExamStudentPreview } from "./ExamPreflight";
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -48,6 +52,7 @@ const ExamList = () => {
     addExam,
     setShalgaltOne,
     getShalgaltList,
+    fetchExamDetails,
     shalgaltOne,
     getShalgalt,
     addExamTest,
@@ -76,12 +81,17 @@ const ExamList = () => {
   const [searchName, setSearchName] = useState("");
   const [exam, setExam] = useState(null);
   const [shareExam, setShareExam] = useState(null);
+  const [progressExam, setProgressExam] = useState(null);
   const sharePath = useHref(shareExam ? `/e/${shareExam._id}` : "/");
   const shareUrl = new URL(sharePath, window.location.origin).href;
   const [edit, setedit] = useState(false);
   const [savingExam, setSavingExam] = useState(false);
   const examSavePending = useRef(false);
   const [examFormError, setExamFormError] = useState("");
+  const [questionToEdit, setQuestionToEdit] = useState(null);
+  const assignedQuestions = exam?._id && shalgaltOne.shalgalt?._id === exam._id ? shalgaltOne.listTests : null;
+  const checkReadiness = Boolean(exam && (!exam._id || Array.isArray(assignedQuestions)));
+  const readinessIssues = useMemo(() => checkReadiness ? getExamIssues(assignedQuestions) : [], [assignedQuestions, checkReadiness]);
   const handleChangeeExam = (prop) => (event) => {
     setExam((current) => ({ ...current, [prop]: event.target.value }));
     setExamFormError("");
@@ -100,8 +110,14 @@ const ExamList = () => {
   function closeModal() {
     if (examSavePending.current) return;
     setExamFormError("");
+    setQuestionToEdit(null);
     setExam(null);
     setIsOpen(false);
+  }
+
+  function editQuestion(id) {
+    setQuestionToEdit(id);
+    settab(1);
   }
 
   async function saveExam() {
@@ -119,6 +135,15 @@ const ExamList = () => {
     examSavePending.current = true;
     setSavingExam(true);
     try {
+      if (values.isActive) {
+        const details = values._id ? await fetchExamDetails(values._id) : null;
+        const questions = details?.listTests ?? [];
+        if (details) setShalgaltOne({ ...details, listTests: questions });
+        if (getExamIssues(questions).length) {
+          setExamFormError("Дараах алдааг зассаны дараа сорилыг эхлүүлнэ үү.");
+          return;
+        }
+      }
       const save = edit ? updateExam : addExam;
       const saved = await save({ ...values, name });
       if (saved) {
@@ -127,6 +152,8 @@ const ExamList = () => {
       } else {
         setExamFormError("Тохиргоог хадгалж чадсангүй. Дахин оролдоно уу.");
       }
+    } catch {
+      setExamFormError("Асуулт, хариултыг шалгаж чадсангүй. Дахин оролдоно уу.");
     } finally {
       examSavePending.current = false;
       setSavingExam(false);
@@ -188,6 +215,7 @@ const ExamList = () => {
   const [memberPrint, setmemberPrint] = useState(false);
   return (
     <div className="">
+      {progressExam && <ExamProgress exam={progressExam} onClose={() => setProgressExam(null)} />}
       {pOpen && (
         <ExamTestPrint data={shalgaltOne} handleClosePOpen={handleClosePOpen} />
       )}
@@ -1068,21 +1096,24 @@ const ExamList = () => {
                                 </div>
 
                                 <Disclosure>
-                                  <Disclosure.Button className="app-button-secondary mb-2" type="button">Урьдчилан харах</Disclosure.Button>
+                                  <Disclosure.Button className="app-button-secondary mb-2" type="button">Сурагчийн дэлгэцээр урьдчилан харах</Disclosure.Button>
                                   <Disclosure.Panel className="app-panel mb-3 space-y-2 p-4">
                                     <h3 className="font-extrabold">{exam.name || "Сорилын нэр"}</h3>
                                     <p className="text-sm">{[exam.examType, exam.lessonName, exam.examTime && `${exam.examTime} минут`].filter(Boolean).join(" · ")}</p>
                                     {exam.introduction && <p className="whitespace-pre-wrap text-sm">{exam.introduction}</p>}
+                                    <ExamStudentPreview questions={assignedQuestions} />
                                   </Disclosure.Panel>
                                 </Disclosure>
                                 {examFormError && <p role="alert" className="mb-2 text-sm font-bold text-red-700 dark:text-red-300">{examFormError}</p>}
+                                <ExamIssues issues={readinessIssues} onEdit={editQuestion} userId={user.id} />
+                                {!exam._id && <p className="mb-2 text-sm font-semibold text-amber-800 dark:text-amber-300">Ноорог хадгалаад Тест хэсгээс даалгавар нэмнэ үү.</p>}
                                 <button
                                   onClick={saveExam}
                                   type="button"
                                   disabled={savingExam}
                                   className="w-full  text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
                                 >
-                                  {savingExam ? "Хадгалж байна…" : "Хадгалах"}
+                                  {savingExam ? "Хадгалж байна…" : exam.isActive ? "Хадгалах" : "Ноорог хадгалах"}
                                 </button>
                               </div>
                             )}
@@ -1109,12 +1140,18 @@ const ExamList = () => {
                               <span className=""> Нийт оноо</span>
                               <div className=" inline-flex absolute -top-2 -right-2 justify-center items-center text-xs font-bold text-white bg-red-500 rounded-full border-2 border-red-500 dark:border-gray-300 px-1">
                                 {shalgaltOne.listTests.reduce(
-                                  (sum, item) => sum + item.points,
+                                  (sum, item) => sum + (Number(item?.points) || 0),
                                   0
                                 )}
                               </div>
                             </button>
-                            <TestList huv={true} />
+                            <ExamIssues issues={readinessIssues} onEdit={editQuestion} userId={user.id} />
+                            <TestList huv={true} questionToEdit={questionToEdit} onQuestionEditorClose={() => {
+                              if (!questionToEdit) return;
+                              setQuestionToEdit(null);
+                              setExamFormError("");
+                              getShalgaltList(exam._id);
+                            }} />
                           </div>
                         )}
                         {tab === 2 && (
@@ -1526,6 +1563,11 @@ const ExamList = () => {
                       </td>
                       <td className="px-6">{item.examTime} минут</td>
                       <td className="px-6 pt-1 items-center flex gap-4">
+                        <button type="button" aria-label={`${item.name} сорилын явц`} title="Сорилын явц"
+                          className="app-button-secondary whitespace-nowrap" onClick={() => setProgressExam(item)}>
+                          <ChartBarIcon aria-hidden="true" className="size-5" />
+                          Явц
+                        </button>
                         <button
                           type="button"
                           aria-label={`${item.name} сорилыг QR кодоор хуваалцах`}
@@ -1546,8 +1588,11 @@ const ExamList = () => {
                           <DocumentChartBarIcon className="w-6 h-6 hover:scale-125 transition-all text-green-600" />
                         </button>
                         <button
+                          type="button"
+                          aria-label={`${item.name} сорилыг засах`}
                           onClick={() => {
                             getShalgaltList(item._id);
+                            settab(0);
                             setedit(true);
                             setExam(item);
                             openModal();

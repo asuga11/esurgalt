@@ -1,18 +1,14 @@
 import { useEffect, useState } from "react";
 
-export default function ExpTimer({ exDate, logout }) {
-  const [deadline] = useState(() => Date.now() + Number(exDate));
-  const [remaining, setRemaining] = useState(() => Math.ceil(Number(exDate) / 1000));
+export default function ExpTimer({ deadline }) {
+  const [remaining, setRemaining] = useState(() => Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
 
   useEffect(() => {
-    const update = () => {
-      const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-      setRemaining(seconds);
-      if (seconds === 0) logout();
-    };
+    const update = () => setRemaining(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [deadline, logout]);
+  }, [deadline]);
 
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);

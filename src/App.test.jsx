@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useContext } from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 import App from "./App";
 import AxiosDB from "./AxiosDB";
-import { MainStore } from "./Context/MainContext";
+import MainContext, { MainStore } from "./Context/MainContext";
+import { uploadBaseUrl } from "./config";
 
 vi.mock("./AxiosDB", () => ({
   default: {
@@ -12,6 +14,7 @@ vi.mock("./AxiosDB", () => ({
     put: vi.fn(),
   },
 }));
+vi.mock("jodit-react", () => ({ default: () => null }));
 
 const openDashboard = (path = "/control") => render(
   <MemoryRouter initialEntries={[path]}>
@@ -21,6 +24,7 @@ const openDashboard = (path = "/control") => render(
 
 afterEach(() => {
   localStorage.clear();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -33,6 +37,47 @@ test("keeps a stored session on a direct dashboard visit", async () => {
 
   expect(await screen.findByRole("heading", { name: "Нийт үзүүлэлт" }, { timeout: 3000 })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Хянах самбар" })).toHaveAttribute("aria-current", "page");
+});
+
+function SessionStatus() {
+  const { user } = useContext(MainContext);
+  return <p>{user ? "Signed in" : "Signed out"}</p>;
+}
+
+test.each([30, 90])("signs out away from the dashboard at the earlier deadline (JWT: %ss)", async (jwtSeconds) => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  const exp = Date.now() / 1000 + jwtSeconds;
+  const token = mockToken("admin", "admin-1", exp);
+  localStorage.setItem("token", token);
+  localStorage.setItem("user", JSON.stringify({ role: "admin" }));
+
+  await act(async () => {
+    render(<MemoryRouter><MainStore><SessionStatus /></MainStore></MemoryRouter>);
+  });
+
+  const duration = Math.min(jwtSeconds, 60) * 1000;
+  await act(() => vi.advanceTimersByTimeAsync(duration - 1));
+  expect(screen.getByText("Signed in")).toBeInTheDocument();
+
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByText("Signed out")).toBeInTheDocument();
+  expect(localStorage.getItem("token")).toBeNull();
+  expect(localStorage.getItem("user")).toBeNull();
+});
+
+test("redirects an expired dashboard session to login when the tab regains focus", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const exp = Math.floor(Date.now() / 1000) + 30;
+  localStorage.setItem("token", mockToken("admin", "admin-1", exp));
+  openDashboard();
+  expect(await screen.findByRole("heading", { name: "Нийт үзүүлэлт" })).toBeInTheDocument();
+
+  vi.spyOn(Date, "now").mockReturnValue(exp * 1000);
+  fireEvent.focus(window);
+
+  expect(await screen.findByRole("heading", { name: "Нэвтрэх", level: 1 })).toBeInTheDocument();
+  expect(localStorage.getItem("token")).toBeNull();
 });
 
 test("sends a guest to the login form on a direct dashboard visit", async () => {
@@ -112,20 +157,232 @@ test("opens the complete exam catalog from the header exam menu and filters ever
   });
 });
 
-function mockToken(role, id) {
-  return `e30.${btoa(JSON.stringify({ role, id, name: "Test user" }))}.test`;
+test("shows exam instructions and keeps the filters when returning to the catalog", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const category = "ЭЕШ-ын сорил";
+  const exam = { _id: "math", name: "Математикийн сорил", examType: category, lessonName: "Алгебр", examTime: 45,
+    introduction: "<p>Эхлээд заавраа уншаарай.</p>" };
+  const get = AxiosDB.get.getMockImplementation();
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "shalgalt/lists") return { data: { shalgalt: [exam] } };
+    if (url === "shalgalt/math") return { data: { success: true, shalgalt: exam, listTests: ["q1", "q2"] } };
+    return get(url, options);
+  }, async () => {
+    openDashboard(`/soril/${encodeURIComponent(category)}?subject=${encodeURIComponent(exam.lessonName)}`);
+    fireEvent.click(await screen.findByRole("link", { name: exam.name }, { timeout: 3000 }));
+    expect(await screen.findByRole("heading", { name: exam.name, level: 1 }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("Эхлээд заавраа уншаарай.")).toBeInTheDocument();
+    expect(screen.getByText("45 минут")).toBeInTheDocument();
+    expect(screen.getByText("Даалгаврын тоо")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Нэвтрэх" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("link", { name: "Сорилын жагсаалт" }));
+    expect(await screen.findByLabelText("Хичээл", { exact: true })).toHaveValue(exam.lessonName);
+  });
+});
+
+test("opens a previously registered exam from its public details without enrolling again", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken("Student", "learner"));
+  const exam = { _id: "math", name: "Математик", examType: "ЭЕШ-ын сорил" };
+  const get = AxiosDB.get.getMockImplementation();
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "shalgalt/math") return { data: { success: true, shalgalt: exam } };
+    if (url === "shalgalt/member/learner") return { data: { shalgaltuud: [
+      { shalgalt: exam, info: { examStatus: "Ажиллаж байна" } },
+    ] } };
+    return get(url, options);
+  }, async () => {
+    openDashboard("/e/math");
+    expect(await screen.findByRole("link", { name: "Үргэлжлүүлэх" }, { timeout: 3000 })).toHaveAttribute("href", "/control/soril/math");
+    expect(screen.queryByRole("button", { name: "Бүртгүүлэх" })).not.toBeInTheDocument();
+  });
+});
+
+function mockToken(role, id, exp) {
+  return `e30.${btoa(JSON.stringify({ role, id, name: "Test user", exp }))}.test`;
 }
+
+test("opens an uploaded lesson from the signed-in training dashboard", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken("suragch", "learner"));
+  const get = AxiosDB.get.getMockImplementation();
+  const course = { _id: "math", name: "Математик" };
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "surgalt/math/learn") throw { response: { status: 404 } };
+    if (url === "surgalt/math") return { data: { surgalt: { ...course, lessons: [
+      { _id: "one", lessonName: "Тэгшитгэл", lessonType: false, url: "lesson 1.mp4", introduction: "<p>Хичээлийн тайлбар</p>", materials: [{ title: "Дадлага", url: "https://example.test/notes.pdf" }] },
+      { _id: "two", lessonName: "Давтлага", url: "surgalt/videos/lesson-2.mp4" },
+    ] } } };
+    if (url !== "surgalt/member/learner") return get(url, options);
+    return { data: { surgaltuud: [{
+      suraltsagch: { status: "Худалдаж авсан" },
+      surgalt: course,
+    }] } };
+  }, async () => {
+    openDashboard("/control/training");
+    fireEvent.click(await screen.findByRole("link", { name: /Математик\s*Үзэх/ }, { timeout: 3000 }));
+    await screen.findByRole("heading", { name: "Математик", level: 1 }, { timeout: 3000 });
+    const viewer = screen.getByRole("main");
+    const expected = new URL(`${uploadBaseUrl}/surgalt/videos/lesson%201.mp4`, window.location.href).href;
+    await waitFor(() => expect(viewer.querySelector("video")).toHaveAttribute("src", expected));
+    expect(screen.getByText("Хичээлийн тайлбар")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Үзсэнээр тэмдэглэх" }));
+    expect(screen.getByRole("progressbar", { name: "Сургалтын ахиц" })).toHaveAttribute("value", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Материал" }));
+    expect(screen.getByRole("link", { name: "Дадлага" })).toHaveAttribute("href", "https://example.test/notes.pdf");
+    fireEvent.click(screen.getByRole("button", { name: "Миний тэмдэглэл" }));
+    fireEvent.change(screen.getByLabelText("Хувийн тэмдэглэл"), { target: { value: "Дахин давтах" } });
+    fireEvent.click(screen.getByRole("button", { name: "Хадгалах" }));
+    expect(screen.getByText("Тэмдэглэл хадгалагдлаа.")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("esurgalt.learn:learner:math")).notes).toEqual({ one: "Дахин давтах" });
+
+    fireEvent.click(within(viewer).getByRole("button", { name: "Дараагийн хичээл" }));
+    const next = new URL(`${uploadBaseUrl}/surgalt/videos/lesson-2.mp4`, window.location.href).href;
+    await waitFor(() => expect(viewer.querySelector("video")).toHaveAttribute("src", next));
+  });
+});
+
+test("does not show a paid lesson when opening its address without access", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken("Student", "learner"));
+  const get = AxiosDB.get.getMockImplementation();
+  const course = { _id: "math", name: "Математик", isTulbur: true, lessons: [{ _id: "one", url: "lesson.mp4" }] };
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "surgalt/math/learn") throw { response: { status: 403 } };
+    if (url === "surgalt/math") return { data: { surgalt: course } };
+    if (url === "surgalt/member/learner") return { data: { surgaltuud: [{ surgalt: course, suraltsagch: { status: "Хүсэлт илгээсэн" } }] } };
+    return get(url, options);
+  }, async () => {
+    openDashboard("/control/learn/math?lesson=one");
+    expect(await screen.findByText("Сургалтын үзэх эрх идэвхгүй байна", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(document.querySelector("video")).toBeNull();
+  });
+});
+
+test("plays the requested lesson from the authenticated learning response", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const token = mockToken("Student", "learner");
+  localStorage.setItem("token", token);
+  const courseId = "63cf8d3013b195f7c0aeac32";
+  const lessonId = "68c18c250f2ba68bc785c37a";
+  const get = AxiosDB.get.getMockImplementation();
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url !== `surgalt/${courseId}/learn`) return get(url, options);
+    expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+    return { data: {
+      success: true,
+      surgalt: { _id: courseId, name: "Өгөгдлийн сан" },
+      access: { full: true },
+      progress: { lastLesson_id: "first" },
+      lessons: [
+        { _id: "first", lessonName: "Эхний хичээл", number: 1, locked: false, videoUrl: "https://example.test/first.mp4" },
+        { _id: lessonId, lessonName: "Сонгосон хичээл", number: 2, locked: false, videoUrl: "https://west.edu.mn/upload/surgalt/videos/chosen.mp4?ticket=test" },
+        { _id: "blocked", lessonName: "Түгжээтэй хичээл", number: 3, locked: true, videoUrl: "https://example.test/locked.mp4" },
+      ],
+    } };
+  }, async () => {
+    openDashboard(`/control/learn/${courseId}?lesson=${lessonId}`);
+    const blocked = await screen.findByRole("button", { name: /Түгжээтэй хичээл/ }, { timeout: 3000 });
+    expect(blocked).toBeDisabled();
+    const expected = new URL(`${uploadBaseUrl}/surgalt/videos/chosen.mp4?ticket=test`, window.location.href).href;
+    await waitFor(() => expect(document.querySelector("video")).toHaveAttribute("src", expected));
+  });
+});
+
+test("shows the course catalog on the training dashboard when the member list is empty", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken("Student", "learner"));
+  const course = { _id: "free", name: "Үнэгүй математик", isTulbur: false, video: "https://example.test/math.mp4" };
+  const get = AxiosDB.get.getMockImplementation();
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "surgalt/member/learner") return { data: { surgaltuud: [] } };
+    if (url === "surgalt") return { data: { surgalt: [course] } };
+    if (url === "surgalt/free") return { data: { surgalt: course } };
+    return get(url, options);
+  }, async () => {
+    openDashboard("/control/training");
+    expect(await screen.findByText("Бүртгүүлсэн сургалт алга")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("link", { name: "Үнэгүй математик сургалт · Үзэх" }));
+    expect(await screen.findByRole("heading", { name: "Үнэгүй математик", level: 1 }, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector("video")).toHaveAttribute("src", course.video));
+  });
+});
+
+test("shows a member-list error and allows retry on the training dashboard", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken("suragch", "learner"));
+  const get = AxiosDB.get.getMockImplementation();
+  let fail = true;
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "surgalt") return { data: { surgalt: [] } };
+    if (url !== "surgalt/member/learner") return get(url, options);
+    if (fail) throw new Error("Сервер түр завгүй байна.");
+    return { data: { surgaltuud: [] } };
+  }, async () => {
+    openDashboard("/control/training");
+    expect(await screen.findByText("Миний сургалтуудыг ачаалж чадсангүй")).toBeInTheDocument();
+    expect(screen.getByText("Сервер түр завгүй байна.")).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Дахин оролдох" }));
+    expect(await screen.findByText("Бүртгүүлсэн сургалт алга")).toBeInTheDocument();
+  });
+});
+
+test("lets a teacher open the course player from the training management table", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken("bagsh", "teacher-1"));
+  const course = { _id: "math", name: "Математик" };
+  const lesson = { _id: "one", lessonName: "Тэгшитгэл", url: "https://example.test/math.mp4" };
+  const get = AxiosDB.get.getMockImplementation();
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "surgalt?owner_id=teacher-1") return { data: { surgalt: [course] } };
+    if (url === "surgalt/math/url") return { data: { surgalt: { ...course, lessons: [lesson] } } };
+    return get(url, options);
+  }, async () => {
+    openDashboard("/control/training");
+    fireEvent.click(await screen.findByRole("button", { name: "Үзэх", exact: true }, { timeout: 3000 }));
+    const dialog = await screen.findByRole("dialog", { name: "Математик" });
+    await waitFor(() => expect(dialog.querySelector("video")).toHaveAttribute("src", lesson.url));
+  });
+});
 
 test("loads the student profile after signing in from a link", async () => {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   const token = mockToken("Student", "student-1");
   openDashboard(`/tlogin/${token}`);
 
-  expect(await screen.findByRole("heading", { name: "Нийт үзүүлэлт" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Сүүлийн дүн" })).toBeInTheDocument();
   await waitFor(() => expect(AxiosDB.get).toHaveBeenCalledWith("students/student-1", {
     headers: { Authorization: `Bearer ${token}` },
   }));
   expect(localStorage.getItem("token")).toBe(token);
+});
+
+test.each(["Student", "suragch"])("shows personal exams and courses on the %s dashboard", async (role) => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  localStorage.setItem("token", mockToken(role, "learner"));
+  const get = AxiosDB.get.getMockImplementation();
+  await AxiosDB.get.withImplementation(async (url, options) => {
+    if (url === "shalgalt/member/learner") return { data: { shalgaltuud: [
+      { shalgalt: { _id: "open", name: "Математикийн сорил" }, info: { examStatus: "Ажиллаж байна" } },
+      { shalgalt: { _id: "graded", name: "Алгебрын дүн" }, info: { examStatus: "Дууссан", endTime: "2026-11-25T00:00:00Z" } },
+      { shalgalt: { _id: "zero", name: "Өмнөх дүн" }, info: { examStatus: "Дууссан", endTime: "2026-11-24T00:00:00Z", unelgee: { dun: 0 } } },
+    ] } };
+    if (url === "shalgaltdun/result/graded/learner") return { data: { success: true, shalgaltdun: { unelgee: { dun: 84 } } } };
+    if (url === "surgalt/member/learner") return { data: { surgaltuud: [
+      { surgalt: { _id: "course", name: "Программчлал" }, suraltsagch: { status: "Худалдаж авсан" } },
+      { surgalt: { _id: "pending", name: "Төлбөр хүлээгдэж буй сургалт" }, suraltsagch: { status: "Хүсэлт илгээсэн" } },
+    ] } };
+    return get(url, options);
+  }, async () => {
+    openDashboard();
+    expect(await screen.findByRole("link", { name: "Сорилоо үргэлжлүүлэх" }, { timeout: 3000 })).toHaveAttribute("href", "/control/soril/open");
+    expect(await screen.findByRole("progressbar", { name: "Гүйцэтгэл · Алгебрын дүн" })).toHaveAttribute("value", "84");
+    expect(screen.getByText("0%")).toBeInTheDocument();
+    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Программчлал" })).toHaveAttribute("href", "/control/learn/course");
+    expect(screen.queryByText("Төлбөр хүлээгдэж буй сургалт")).not.toBeInTheDocument();
+  });
 });
 
 test("opens a completed exam from the school student list", async () => {
@@ -136,12 +393,21 @@ test("opens a completed exam from the school student list", async () => {
   const originalGet = AxiosDB.get.getMockImplementation();
   await AxiosDB.get.withImplementation(async (url, options) => {
     requests.push(url);
-    const shalgalt = { _id: "exam-1", name: "Математикийн сорил" };
+    const shalgalt = { _id: "exam-1", name: "Математикийн сорил", isOpenAnswer: true };
     const info = { member_id: "student-1", examStatus: "Дууссан" };
     if (url === "shalgalt/member/student-1") return { data: { shalgaltuud: [{ shalgalt, info }] } };
     if (url === "shalgalt/findOne/exam-1/student-1") return { data: { success: true, shalgalt, info } };
     if (url === "shalgaltdun/result/exam-1/student-1") {
-      return { data: { success: true, shalgaltdun: { unelgee: { dun: 85 } } } };
+      return { data: { success: true, shalgaltdun: { unelgee: { dun: 85 }, contentQuiz: [
+        { _id: "choice", onoo: 0, testsan_id: {
+          testType: "Нэг сонголттой", points: 2, question: "<p>Зөв тоог сонгоно уу.</p>",
+          answers: [{ _id: "a1", answer: "Найм", correct: true }, { _id: "a2", answer: "Ес" }],
+        }, studAnswers: [{ _id: "a2" }] },
+        { _id: "written", onoo: 1, testsan_id: {
+          testType: "Задгай даалгавар", points: 2, question: "<p>Тооцооллын дүнг оруулна уу.</p>",
+          answers: [{ _id: "a3", answer: "а", value: "42", correct: true }],
+        }, studAnswers: [{ _id: "a3", answer: "а", value: "41" }] },
+      ] } } };
     }
     return originalGet(url, options);
   }, async () => {
@@ -149,6 +415,15 @@ test("opens a completed exam from the school student list", async () => {
     fireEvent.click(await screen.findByRole("button", { name: "Сорилын үр дүн" }));
     expect(await screen.findByRole("heading", { name: "Таны гүйцэтгэл" })).toBeInTheDocument();
     expect(screen.getByText("85%")).toBeInTheDocument();
+    expect(screen.getByText("Зөв тоог сонгоно уу.")).toBeInTheDocument();
+    expect(screen.getByText("Таны сонголт")).toBeInTheDocument();
+    expect(screen.getByText("Найм")).toBeInTheDocument();
+    expect(screen.getByText("1 / 2 оноо")).toBeInTheDocument();
+    expect(screen.getByText("41")).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Хэсэгчилсэн оноо (1)" }));
+    expect(screen.queryByText("Зөв тоог сонгоно уу.")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Даалгавар 2" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Эхлүүлэх" })).not.toBeInTheDocument();
     expect(requests).not.toContain("shalgalt/findOne/exam-1/school-1");
   });
@@ -193,7 +468,11 @@ test("recovers an invalid saved question order and waits for an answer before fi
         shalgalt: { _id: examId }, shalgaltdun: [current, second] } };
     }
     if (url === "shalgaltdun/q1") return { data: { shalgaltdun: current } };
-    if (url === "shalgaltdun/result/exam-2/learner") return { data: { success: true, shalgaltdun: {} } };
+    if (url === "shalgaltdun/result/exam-2/learner") {
+      return { data: { success: true, shalgaltdun: { contentQuiz: [{ ...current, testsan_id: {
+        ...current.testsan_id, answers: [{ _id: "a1", answer: "Нийтлээгүй зөв хариулт", correct: true }],
+      } }] } } };
+    }
     return originalGet(url, options);
   }, async () => {
     openDashboard("/control/soril/exam-2");
@@ -204,6 +483,8 @@ test("recovers an invalid saved question order and waits for an answer before fi
     expect(mutations).toEqual(["shalgaltdun/working/q1"]);
     finishAnswer();
     expect(await screen.findByRole("heading", { name: "Таны гүйцэтгэл" })).toBeInTheDocument();
+    expect(screen.getByText("Даалгаврын хариултууд нийтлэгдээгүй байна.")).toBeInTheDocument();
+    expect(screen.queryByText("Нийтлээгүй зөв хариулт")).not.toBeInTheDocument();
     expect(mutations).toEqual(["shalgaltdun/working/q1", "shalgalt/updateMember/exam-2"]);
   }));
 });

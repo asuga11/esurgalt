@@ -2,7 +2,10 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import TimerMember from "./TimerMember";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  sessionStorage.clear();
+});
 
 test("uses elapsed time after a backgrounded tab and expires once", () => {
   vi.useFakeTimers();
@@ -39,5 +42,21 @@ test("does not extend the deadline when a later response has stale remaining tim
   expect(screen.getByText("00:00:45")).toBeInTheDocument();
 
   act(() => vi.advanceTimersByTime(45_000));
+  expect(onExpire).toHaveBeenCalledTimes(1);
+});
+
+test("retains the original deadline after reopening the exam in the same tab", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2025-01-01T00:00:00Z"));
+  const onExpire = vi.fn();
+  const props = { storageKey: "exam-deadline:123:abc", onExpire };
+  const { unmount } = render(<TimerMember {...props} exDate={60_000} />);
+  unmount();
+
+  vi.setSystemTime(new Date("2025-01-01T00:00:30Z"));
+  render(<TimerMember {...props} exDate={60_000} />);
+  expect(screen.getByText("00:00:30")).toBeInTheDocument();
+
+  act(() => vi.advanceTimersByTime(30_000));
   expect(onExpire).toHaveBeenCalledTimes(1);
 });

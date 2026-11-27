@@ -36,8 +36,8 @@ export default function useExamEnrollment(includeTeacher = false) {
       return;
     }
 
-    const allowedAimag = includeTeacher ? exam.aimag || [] : exam.aimag;
-    if (user.role === "suragch" && allowedAimag?.length !== 0 && !allowedAimag?.includes(learner?.city)) {
+    const allowedAimag = Array.isArray(exam.aimag) ? exam.aimag : [];
+    if (user.role === "suragch" && allowedAimag.length > 0 && !allowedAimag.includes(learner?.city)) {
       toast.error("Таны аймаг энэ сорилын бүртгэлд хамрагдахгүй байна.");
       return;
     }

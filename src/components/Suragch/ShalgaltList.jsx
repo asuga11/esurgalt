@@ -1,136 +1,119 @@
-import { DocumentCheckIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { useContext, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  ArrowRightIcon, CalendarDaysIcon, ClipboardDocumentCheckIcon, ClockIcon, MagnifyingGlassIcon,
+} from "@heroicons/react/24/outline";
 import MainContext from "../../Context/MainContext";
+import CollectionState from "../General/CollectionState";
+import { examMinutes, examSchedule, memberExamActions } from "../Soril/examPresentation";
 
-import moment from "moment";
-const ShalgaltList = () => {
+const filters = [
+  ["", "Бүгд"],
+  ["working", "Үргэлжлүүлэх", "Ажиллаж байна"],
+  ["assigned", "Бүртгүүлсэн", "Хуваарилсан"],
+  ["completed", "Дууссан", "Дууссан"],
+];
+const normalize = (value) => String(value ?? "").normalize("NFKC").toLocaleLowerCase("mn").trim();
+const memberStatus = (item) => String(item.info?.examStatus ?? "").trim();
+
+export default function ShalgaltList() {
   const navigate = useNavigate();
   const { sid } = useParams();
-  const { getShalgaltMember, user } = useContext(MainContext);
+  const { getShalgaltMember, user, sorilType } = useContext(MainContext);
   const isSchool = user?.role === "surguuli";
-  const memberId = isSchool ? sid : user?.id;
+  const memberId = isSchool ? sid : user?.id ?? user?._id ?? user?.sub;
   const [list, setList] = useState({ memberId: null, status: "loading", exams: [] });
-  const [reload, setReload] = useState(0);
+  const [attempt, setAttempt] = useState(0);
+  const [params, setParams] = useSearchParams();
+  const filter = filters.find(([key]) => key === params.get("status")) || filters[0];
+  const query = params.get("q") || "";
+  const listCategory = Array.isArray(sorilType?.content) ? sorilType.content.find((item) => item?.examType)?.examType : null;
+  const catalog = `/soril/${encodeURIComponent(listCategory || "ЭЕШ-ын сорил")}`;
 
   useEffect(() => {
     if (!memberId) return;
     const controller = new AbortController();
     setList({ memberId, status: "loading", exams: [] });
-    getShalgaltMember(memberId, controller.signal)
-      .then((exams) => {
-        if (!controller.signal.aborted) setList({ memberId, status: "ready", exams });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setList({ memberId, status: "error", exams: [] });
-      });
+    getShalgaltMember(memberId, controller.signal).then((exams) => {
+      if (!controller.signal.aborted) setList({ memberId, status: "ready", exams });
+    }).catch(() => {
+      if (!controller.signal.aborted) setList({ memberId, status: "error", exams: [] });
+    });
     return () => controller.abort();
-  }, [getShalgaltMember, memberId, reload]);
+  }, [attempt, getShalgaltMember, memberId]);
 
   const status = list.memberId === memberId ? list.status : "loading";
-  const exams = list.memberId === memberId ? list.exams.filter((item) => item.shalgalt?._id) : [];
+  const exams = list.memberId === memberId ? list.exams.filter((item) => item?.shalgalt?._id) : [];
+  const visible = exams.filter((item) => (!filter[2] || memberStatus(item) === filter[2]) &&
+    normalize(`${item.shalgalt.name || ""} ${item.shalgalt.lessonName || ""}`).includes(normalize(query)));
+  const update = (key, value) => setParams((current) => {
+    const next = new URLSearchParams(current);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    return next;
+  }, { replace: true });
+
   return (
-    <div>
-      <div>
-        <h1 className="font-bold mb-2">Оролцсон сорилууд</h1>
-      </div>
-      {status === "loading" && <p role="status">Сорилуудыг ачаалж байна…</p>}
-      {status === "error" && (
-        <div role="alert">
-          <p>Оролцсон сорилуудыг ачаалж чадсангүй.</p>
-          <button type="button" className="app-button-secondary mt-3" onClick={() => setReload(reload + 1)}>
-            Дахин ачаалах
-          </button>
+    <div className="mx-auto max-w-6xl space-y-4">
+      <header className="app-banner flex flex-wrap items-center justify-between gap-4 px-5 py-6 sm:px-7">
+        <div>
+          <h2 className="text-xl font-extrabold sm:text-2xl">{isSchool ? "Сурагчийн сорилууд" : "Миний сорилууд"}</h2>
+          {status === "ready" && <p className="mt-1 text-sm font-semibold text-orange-100">Нийт {exams.length} сорил</p>}
+        </div>
+        {!isSchool && <Link to={catalog} className="app-button-primary">Сорилын сан</Link>}
+      </header>
+      {exams.length > 0 && (
+        <div className="app-panel grid gap-3 p-3 sm:p-4 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] lg:items-center">
+          <div role="group" aria-label="Сорилын төлөв" className="flex flex-wrap gap-1.5">
+            {filters.map(([key, label, value]) => (
+              <button key={key} type="button" aria-pressed={key === filter[0]} onClick={() => update("status", key)}
+                className="app-filter-chip">
+                {label} <span className="tabular-nums opacity-80">{value ? exams.filter((item) => memberStatus(item) === value).length : exams.length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="relative">
+            <MagnifyingGlassIcon aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-slate-500 dark:text-slate-400" />
+            <input aria-label="Миний сорилоос хайх" type="search" className="app-field w-full pl-10" placeholder="Нэр эсвэл хичээлээр хайх"
+              value={query} onChange={(event) => update("q", event.target.value)} />
+          </div>
         </div>
       )}
-      {status === "ready" && exams.length === 0 && <p>Оролцсон сорил байхгүй байна.</p>}
-      {exams.length > 0 && <div role="region" aria-label="Оролцсон сорилууд" tabIndex={0} className="app-table-scroll">
-        <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-          <thead className="text-xs text-gray-900 uppercase bg-gray-300 dark:bg-gray-900 dark:text-gray-200">
-            <tr>
-              <th scope="col" className="px-6 py-3">
-                №
-              </th>
-              <th scope="col" className="px-6 py-3"></th>
-              <th scope="col" className="px-6 py-3">
-                Сорилын нэр
-              </th>
-              <th scope="col" className="px-6 py-3">
-                Эхлэх цаг
-              </th>
-              <th scope="col" className="px-6 py-3">
-                Үргэлжлэх хугацаа
-              </th>
-              <th scope="col" className="px-6 py-3 text-center">
-                Төлөв
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {exams.map((item, i) => {
-              return (
-                <tr key={item.shalgalt._id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                  <td className="px-6 py-2">{i + 1}</td>
-                  <td className="px-6 pt-1 items-center flex gap-2">
-                    {(!isSchool || item.info?.examStatus === "Дууссан") && (
-                      <button
-                        type="button"
-                        className="text-slate-600 dark:text-white"
-                        aria-label={item.info?.examStatus === "Дууссан" ? "Сорилын үр дүн" : "Сорил нээх"}
-                        onClick={() => navigate(
-                          `/control/soril/${item.shalgalt._id}${isSchool ? `/${memberId}` : ""}`
-                        )}
-                      >
-                        {item.info?.examStatus === "Дууссан"
-                          ? <DocumentCheckIcon className="size-6" />
-                          : <PlayIcon className="size-6" />}
-                      </button>
-                    )}
-                  </td>
-                  <th
-                    scope="row"
-                    className="px-6 font-medium text-gray-900 whitespace-nowrap dark:text-white"
-                  >
-                    {item.shalgalt.name}
-                  </th>
-
-                  <td className="px-6 ">
-                    {/* <Timer
-                      exDate={item.shalgalt.shalgaltHugatsaa}
-                      css={"tracking-widest font-bold "}
-                    /> */}
-                    {item.shalgalt.isStartTime
-                      ? moment(item.shalgalt.examDate).format(
-                          "yyyy-MM-DD HH:mm"
-                        )
-                      : "Хэзээ ч болно"}
-                  </td>
-                  <td className="px-6">{item.shalgalt?.examTime} мин</td>
-                  <td className="px-6">
-                    {item.info?.examStatus === "Хуваарилсан" && (
-                      <p className=" bg-sky-600 rounded-full text-center text-white px-2">
-                        {item.info?.examStatus}
-                      </p>
-                    )}
-                    {item.info?.examStatus === "Дууссан" && (
-                      <p className=" bg-rose-600 rounded-full text-center text-white px-2">
-                        {item.info?.examStatus}
-                      </p>
-                    )}
-                    {item.info?.examStatus === "Ажиллаж байна" && (
-                      <p className=" bg-green-600 rounded-full text-center text-white px-2">
-                        {item.info?.examStatus}
-                      </p>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>}
+      {!memberId ? <CollectionState state="empty" title="Оролцогчийн мэдээлэл олдсонгүй" /> : status === "loading" ? (
+        <CollectionState state="loading" title="Сорилуудыг ачаалж байна…" />
+      ) : status === "error" ? (
+        <CollectionState state="error" title="Сорилын жагсаалт ачаалагдсангүй" action={() => setAttempt((value) => value + 1)} />
+      ) : !visible.length ? (
+        <CollectionState state="empty" title={exams.length ? "Шүүлтүүрт тохирох сорил алга" : "Оролцсон сорил алга"}
+          actionLabel="Шүүлтүүр арилгах" action={exams.length ? () => setParams({}, { replace: true }) : undefined} />
+      ) : (
+        <ul className="grid gap-3" aria-label="Оролцсон сорилууд">
+          {visible.map((item) => {
+            const exam = item.shalgalt;
+            const state = memberStatus(item);
+            const completed = state === "Дууссан";
+            const href = `/control/soril/${encodeURIComponent(exam._id)}${isSchool ? `/${encodeURIComponent(memberId)}` : ""}`;
+            const action = Object.hasOwn(memberExamActions, state) ? memberExamActions[state] : "Сорил нээх";
+            return (
+              <li key={exam._id} className="app-panel flex flex-wrap items-center gap-3 p-4 sm:gap-4 sm:p-5">
+                <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-300">
+                  <ClipboardDocumentCheckIcon aria-hidden="true" className="size-5" />
+                </span>
+                <div className="min-w-0 flex-1 basis-48">
+                  <h3 className="font-extrabold break-words">{exam.name || "Сорил"}</h3>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+                    <span className="inline-flex items-center gap-1"><CalendarDaysIcon aria-hidden="true" className="size-4" />{examSchedule(exam)}</span>
+                    {examMinutes(exam) && <span className="inline-flex items-center gap-1"><ClockIcon aria-hidden="true" className="size-4" />{examMinutes(exam)}</span>}
+                  </div>
+                </div>
+                {state && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200">{state}</span>}
+                {(!isSchool || completed) && <button type="button" aria-label={completed ? "Сорилын үр дүн" : undefined}
+                  className="app-button-secondary gap-2" onClick={() => navigate(href)}>{action}<ArrowRightIcon aria-hidden="true" className="size-4" /></button>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
-};
-
-export default ShalgaltList;
+}

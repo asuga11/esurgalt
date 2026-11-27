@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   AcademicCapIcon,
   ArrowRightEndOnRectangleIcon,
@@ -133,8 +133,7 @@ const SignUp = () => {
   const changeSuragch = (prop) => (event) => {
     setSuragch({ ...suragch, [prop]: event.target.value });
   };
-  const [isSigningIn, setIsSigningIn] = useState(true);
-  const formHeading = useRef(null);
+  const { isSigningIn, setIsSigningIn } = useOutletContext();
   const focusOnModeChange = useRef(false);
   const [pending, setPending] = useState(false);
   const soum = addressState.address?.find(({ aimagCity }) => aimagCity === suragch.city)?.soumDistrict || [];
@@ -142,7 +141,7 @@ const SignUp = () => {
   useEffect(() => {
     if (!focusOnModeChange.current) return;
     focusOnModeChange.current = false;
-    formHeading.current?.focus();
+    document.getElementById("page-title")?.focus();
   }, [isSigningIn]);
 
   const changeMode = (signingIn) => {
@@ -231,18 +230,11 @@ const SignUp = () => {
           <form
             key="sign-in"
             aria-busy={pending}
-            aria-labelledby="auth-heading"
+            aria-labelledby="page-title"
             onSubmit={(event) => submit(event, signIn)}
             className="w-full max-w-[29rem]"
           >
             <div className="space-y-3 sm:space-y-4">
-              <div className="flex items-center gap-3.5 pb-1">
-                <span className="grid size-12 shrink-0 place-items-center rounded-2xl border border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/55 dark:text-orange-300">
-                  <LockClosedIcon aria-hidden="true" className="size-6" />
-                </span>
-                <h1 ref={formHeading} id="auth-heading" tabIndex={-1} className="rounded-sm text-3xl font-extrabold tracking-tight sm:text-4xl">Нэвтрэх</h1>
-              </div>
-
               <RolePicker role={role} onChange={selectRole} pending={pending} />
 
               <div>
@@ -335,16 +327,10 @@ const SignUp = () => {
           <form
             key="registration"
             aria-busy={pending}
-            aria-labelledby="auth-heading"
+            aria-labelledby="page-title"
             onSubmit={(event) => submit(event, () => signup(suragch))}
             className="w-full max-w-2xl"
           >
-            <div className="mb-6 flex items-center gap-3">
-              <span className="grid size-12 shrink-0 place-items-center rounded-2xl border border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/55 dark:text-orange-300">
-                <UserPlusIcon aria-hidden="true" className="size-6" />
-              </span>
-              <h1 ref={formHeading} id="auth-heading" tabIndex={-1} className="rounded-sm text-2xl font-extrabold tracking-tight sm:text-3xl">Бүртгүүлэх</h1>
-            </div>
             <fieldset disabled={pending} className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
               <legend className="mb-3 text-sm font-extrabold">Сурагчийн мэдээлэл</legend>
               <div>

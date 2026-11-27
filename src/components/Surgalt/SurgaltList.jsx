@@ -7,7 +7,7 @@ import useCourseCatalog from "./useCourseCatalog";
 
 const normalizeText = (text) => text.normalize("NFC").toLocaleLowerCase("mn-MN").trim();
 
-export default function SurgaltList() {
+export default function SurgaltList({ embedded = false }) {
   const { angilalState } = useContext(MainContext);
   const [category, setCategory] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -23,9 +23,9 @@ export default function SurgaltList() {
   };
 
   return (
-    <section className="app-container py-7 sm:py-12" aria-labelledby="course-catalog">
-      <h1 id="course-catalog" className="text-3xl font-extrabold tracking-tight sm:text-4xl">Сургалтууд</h1>
-      <div className="app-panel mt-5 flex flex-col gap-4 p-4 sm:mt-6 sm:flex-row sm:items-end sm:p-5">
+    <section className={embedded ? "mt-6" : "app-container py-7 sm:py-12"} aria-label="Бүх сургалт">
+      {embedded && <h2 className="mb-3 text-xl font-extrabold">Бүх сургалт</h2>}
+      <div className="app-panel flex flex-col gap-4 p-4 sm:flex-row sm:items-end sm:p-5">
         <div className="min-w-0 flex-1">
           <label htmlFor="course-search" className="mb-2 block text-sm font-bold">Сургалт хайх</label>
           <div className="relative">

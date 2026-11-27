@@ -6,7 +6,8 @@ import React, { useContext, useEffect, useEffectEvent, useMemo, useRef, useState
 import { useParams } from "react-router-dom";
 import MainContext from "../../../Context/MainContext";
 import TimerMember from "./TimerMember";
-import DunMember from "./DunMember";
+import { hasSavedAnswer as hasAnswer } from "../../Exam/examAnswers";
+import ExamResultDetails from "./ExamResultDetails";
 import Timer from "../../Exam/Timer";
 import {
   ArrowLeftOnRectangleIcon,
@@ -45,12 +46,6 @@ const checkFullScreen = () => {
   );
 };
 
-const hasAnswer = (question) => question.studAnswers?.some((answer) => {
-  const type = question.testsan_id?.testType;
-  return type === "Нэг сонголттой" || type === "Олон сонголттой" ||
-    Boolean(String(answer.value ?? "").trim());
-});
-
 const ExamWork = ({ eid, memberId, readOnly }) => {
 
   const {
@@ -67,6 +62,10 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
   } = useContext(MainContext);
 
   const draftKey = `exam-drafts:${encodeURIComponent(memberId)}:${encodeURIComponent(eid)}`;
+  const deadlineKey = `exam-deadline:${encodeURIComponent(memberId)}:${encodeURIComponent(eid)}`;
+  const clearDeadline = () => {
+    try { sessionStorage.removeItem(deadlineKey); } catch { /* Storage may be blocked. */ }
+  };
   const [drafts, setDrafts] = useState(() => {
     if (readOnly) return {};
     try {
@@ -78,7 +77,6 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
   });
   const draftValues = useRef(drafts);
   const [draftStorageError, setDraftStorageError] = useState(false);
-  const [dunOpen, setDunOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [warningCount, setWarningCount] = useState(0);
   const warningCountRef = useRef(0);
@@ -87,6 +85,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
   const [isAnswerSaving, setIsAnswerSaving] = useState(false);
   const [answerSaveState, setAnswerSaveState] = useState(null);
   const [timeExpired, setTimeExpired] = useState(false);
+  const [submissionFailed, setSubmissionFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [loadState, setLoadState] = useState("loading");
   const [reload, setReload] = useState(0);
@@ -119,10 +118,13 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     else next[key] = value;
     writeDrafts(next);
   };
-  const clearCompletedDrafts = useEffectEvent(() => writeDrafts({}));
+  const clearCompletedAttempt = useEffectEvent(() => {
+    writeDrafts({});
+    clearDeadline();
+  });
   const isCompleted = !readOnly && loadState === "ready" && memberExamOne?.info?.examStatus === "Дууссан";
   useEffect(() => {
-    if (isCompleted) clearCompletedDrafts();
+    if (isCompleted) clearCompletedAttempt();
   }, [isCompleted]);
 
   useEffect(() => {
@@ -303,7 +305,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     memberExamOne?.shalgaltdun?.filter(hasAnswer)
       ?.length || 0;
 
-  const totalCount = memberExamOne?.shalgaltdun?.length || 0;
+  const totalCount = memberExamOne?.shalgaltdun?.filter((item) => item?.testsan_id?.testType !== "Текст").length || 0;
 
   const userInfoText = [
     memberExamOne?.info?.member_name,
@@ -322,6 +324,9 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
     }
 
     requestFullScreen();
+    clearDeadline();
+    setTimeExpired(false);
+    setSubmissionFailed(false);
 
     mutationPending.current = true;
     setIsSaving(true);
@@ -350,19 +355,31 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
 
     mutationPending.current = true;
     setIsSaving(true);
+    setSubmissionFailed(false);
     try {
       await answerPending.current;
       if (await updateExamMember(examId, { _id: examMemberId, examStatus: "Дууссан" })) {
         writeDrafts({});
+        clearDeadline();
         setEndOpen(false);
       } else {
         await getMemberExamOne(examId, examMemberId);
+        setSubmissionFailed(true);
       }
+    } catch {
+      setSubmissionFailed(true);
     } finally {
       mutationPending.current = false;
       setIsSaving(false);
     }
   };
+  const retryAfterReconnect = useEffectEvent(() => finishExam());
+  useEffect(() => {
+    if (!timeExpired || !submissionFailed || !isWorking) return;
+    const retry = () => retryAfterReconnect();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [timeExpired, submissionFailed, isWorking]);
 
 
   const goQuestionByIndex = (nextIndex) => {
@@ -397,8 +414,6 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
         </div>
       )}
 
-      {dunOpen && <DunMember closeDun={() => setDunOpen(false)} />}
-
       {endOpen && isWorking && (
         <EndExam
           closeModal={() => setEndOpen(false)}
@@ -426,7 +441,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                 <div className="mb-5 rounded-xl bg-slate-100 p-4 text-center dark:bg-slate-800">
                   <Timer
                     exDate={memberExamOne.shalgalt.shalgaltHugatsaa}
-                    css="tracking-widest text-xl font-bold text-blue-600 dark:text-blue-400"
+                    css="tracking-widest text-xl font-bold text-orange-700 dark:text-orange-300"
                   />
                 </div>
 
@@ -447,7 +462,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                 </div>
 
                 {userInfoText && (
-                  <div className="mt-4 rounded-xl bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+                  <div className="mt-4 rounded-xl bg-orange-50 p-4 text-sm text-orange-900 dark:bg-orange-950 dark:text-orange-100">
                     <b>Шалгуулагч:</b> {userInfoText}
                   </div>
                 )}
@@ -472,9 +487,10 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                     <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                       Үлдсэн хугацаа
                     </p>
-                    <div className="text-xl font-bold text-blue-600 dark:text-blue-400 xl:text-2xl">
+                    <div className="text-xl font-bold text-orange-700 dark:text-orange-300 xl:text-2xl">
                       <TimerMember
                         exDate={memberExamOne.info.memberTime}
+                        storageKey={deadlineKey}
                         css="tracking-widest font-bold"
                         onExpire={() => {
                           setTimeExpired(true);
@@ -516,7 +532,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                       <button
                         type="button"
                         onClick={requestFullScreen}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
+                        className="app-button-primary"
                       >
                         Дэлгэц дүүргэж харах
                       </button>
@@ -536,7 +552,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300 xl:text-sm">
+                        <span className="rounded-md bg-orange-50 px-3 py-1 text-xs font-bold text-orange-700 dark:bg-orange-950 dark:text-orange-300 xl:text-sm">
                           {testType || "Даалгавар"}
                         </span>
 
@@ -576,7 +592,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                           currentIndex === -1 ||
                           currentIndex >= normalTests.length - 1
                             ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
-                            : "bg-blue-600 text-white hover:bg-blue-700"
+                            : "bg-orange-700 text-white hover:bg-orange-800"
                         }`}
                       >
                         Дараах →
@@ -612,6 +628,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                       )}
 
                       {timeExpired && <p role="status" className="text-sm font-bold text-amber-700 dark:text-amber-300">Хугацаа дууссан. Хадгалсан хариултыг илгээнэ.</p>}
+                      {submissionFailed && <p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">Эцсийн илгээлт баталгаажаагүй байна. Дахин оролдоно уу.</p>}
                       {!timeExpired && (isAnswerSaving || hasCurrentDraft || currentAnswerSave) && (
                         <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
                           {isAnswerSaving ? "Хадгалж байна…" : currentAnswerSave?.saved === false
@@ -634,7 +651,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                                 value={drafts[draftId(item._id)] ?? item.value ?? ""}
                                 onChange={(event) => changeDraft(draftId(item._id), event.target.value)}
                                 type="text"
-                                className="w-full rounded-r-lg border border-slate-200 bg-white p-3 text-base outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
+                                className="w-full rounded-r-lg border border-slate-200 bg-white p-3 text-base outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
                                 placeholder="Хариулт"
                               />
                               <button type="button" className="app-button-secondary" disabled={drafts[draftId(item._id)] === undefined}
@@ -653,7 +670,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                             aria-label="Эсээний хариулт"
                             onChange={(event) => changeDraft(draftId("essay"), event.target.value)}
                             rows={8}
-                            className="w-full rounded-lg border border-slate-200 bg-white p-4 text-base outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
+                            className="w-full rounded-lg border border-slate-200 bg-white p-4 text-base outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
                             placeholder="Эсээ бичих..."
                             value={drafts[draftId("essay")] ?? savedAnswers[0]?.value ?? ""}
                           />
@@ -669,7 +686,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                               if (saved) changeDraft(key);
                             }}
                             disabled={drafts[draftId("essay")] === undefined}
-                            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50 xl:text-base"
+                            className="app-button-primary"
                           >
                             Хадгалах
                           </button>
@@ -685,7 +702,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                                 value={drafts[draftId(item._id)] ?? item.value ?? ""}
                                 onChange={(event) => changeDraft(draftId(item._id), event.target.value)}
                                 type="text"
-                                className="w-full rounded-l-lg border border-slate-200 bg-white p-3 text-base outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
+                                className="w-full rounded-l-lg border border-slate-200 bg-white p-3 text-base outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-slate-800 xl:text-lg"
                                 placeholder="Хариулт оруулах"
                               />
 
@@ -696,7 +713,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                                   const key = draftId(item._id);
                                   if (await saveAnswer(workTest2, questionId, { _id: item._id, value: drafts[key] }, examId, templateId)) changeDraft(key);
                                 }}
-                                className="rounded-r-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 xl:text-base"
+                                className="rounded-r-lg bg-orange-700 px-4 text-sm font-bold text-white hover:bg-orange-800 xl:text-base"
                               >
                                 Хадгалах
                               </button>
@@ -764,14 +781,14 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                                   }}
                                   className={`flex w-full items-start gap-4 rounded-xl border p-4 text-left text-base leading-7 transition sm:text-lg xl:text-xl xl:leading-9 ${
                                     checked
-                                      ? "border-blue-500 bg-blue-50 text-slate-900 dark:border-blue-500 dark:bg-slate-800 dark:text-white"
+                                      ? "border-orange-500 bg-orange-50 text-slate-900 dark:border-orange-500 dark:bg-slate-800 dark:text-white"
                                       : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                                   }`}
                                 >
                                   <span
                                     className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
                                       checked
-                                        ? "border-blue-500 bg-blue-500 text-white"
+                                        ? "border-orange-500 bg-orange-700 text-white"
                                         : "border-slate-300 bg-white dark:border-slate-500 dark:bg-slate-900"
                                     }`}
                                   >
@@ -810,7 +827,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
 
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-300 xl:text-sm">
                     <span className="inline-flex items-center gap-1">
-                      <span className="h-3 w-3 rounded bg-blue-600" />
+                      <span className="h-3 w-3 rounded bg-orange-700" />
                       Одоогийн
                     </span>
                     <span className="inline-flex items-center gap-1">
@@ -848,7 +865,7 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                         }}
                         className={`h-8 min-w-8 rounded-md px-2 text-sm font-bold transition xl:h-9 xl:min-w-9 xl:text-base ${
                           selectedTest?._id === item._id
-                            ? "bg-blue-600 text-white"
+                            ? "bg-orange-700 text-white"
                             : hasAnswer(item)
                             ? "bg-green-600 text-white"
                             : "bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200"
@@ -883,82 +900,22 @@ const ExamWork = ({ eid, memberId, readOnly }) => {
                 {memberExamOne.info?.examStatus === "Дууссан" ? "Сорилын үр дүн" : "Сорил дуусаагүй байна"}
               </h1>
               {memberExamOne.info?.examStatus === "Дууссан" && (
-                <button type="button" className="app-button-secondary mt-4" onClick={() => setReload(reload + 1)}>
-                  Үр дүнг дахин ачаалах
-                </button>
+                dunMember.error ? <>
+                  <p className="mt-2" role="alert">Үр дүнг ачаалж чадсангүй.</p>
+                  <button type="button" className="app-button-secondary mt-4" onClick={() => setReload((attempt) => attempt + 1)}>
+                    Үр дүнг дахин ачаалах
+                  </button>
+                </> : <p className="mt-2" role="status">Үр дүнг ачаалж байна…</p>
               )}
             </div>
           )}
 
-          {memberExamOne.info?.examStatus === "Дууссан" &&
-            dunMember.success && (
-              <section className="mx-auto flex min-h-screen max-w-lg items-center px-4">
-                <div className="w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
-                  <div className="bg-gradient-to-br from-blue-600 to-indigo-700 px-6 py-8 text-center text-white">
-                    <p className="text-sm font-semibold uppercase tracking-widest text-white/80">
-                      Сорилын үр дүн
-                    </p>
-
-                    <h1 className="mt-2 text-2xl font-extrabold">
-                      Таны гүйцэтгэл
-                    </h1>
-
-                    <div className="mt-6 flex justify-center">
-                      <div
-                        className="relative flex h-40 w-40 items-center justify-center rounded-full"
-                        style={{
-                          background: `conic-gradient(#ffffff ${
-                            dunMember.shalgaltdun?.unelgee?.dun || 0
-                          }%, rgba(255,255,255,0.2) 0)`,
-                        }}
-                      >
-                        <div className="flex h-32 w-32 flex-col items-center justify-center rounded-full bg-blue-700">
-                          <span className="text-4xl font-extrabold">
-                            {dunMember.shalgaltdun?.unelgee?.dun || 0}%
-                          </span>
-                          <span className="mt-1 text-xs text-white/80">
-                            гүйцэтгэл
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-6">
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        ["Нийт тест", dunMember.shalgaltdun?.niitTest],
-                        ["Нийт оноо", dunMember.shalgaltdun?.onooNiitTest],
-                        ["Зөв хариулсан", dunMember.shalgaltdun?.tooZuvHariu],
-                        ["Авсан оноо", dunMember.shalgaltdun?.onooZuvHariu],
-                      ].map(([label, value]) => (
-                        <div
-                          key={label}
-                          className="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-800"
-                        >
-                          <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                            {label}
-                          </p>
-                          <p className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-white">
-                            {value}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {memberExamOne.shalgalt?.isOpenAnswer && (
-                      <button
-                        type="button"
-                        onClick={() => setDunOpen(true)}
-                        className="mt-6 w-full rounded-2xl bg-blue-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
-                      >
-                        Дэлгэрэнгүй харах
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </section>
-            )}
+          {memberExamOne.info?.examStatus === "Дууссан" && dunMember.success && (
+            <section className="px-3 py-5 sm:px-6 sm:py-8">
+              <ExamResultDetails result={dunMember.shalgaltdun} examName={memberExamOne.shalgalt?.name}
+                showAnswers={memberExamOne.shalgalt?.isOpenAnswer === true} />
+            </section>
+          )}
         </>
       )}
     </section>

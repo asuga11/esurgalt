@@ -1,28 +1,32 @@
-import moment from "moment";
-import { Link } from "react-router-dom";
-import { CalendarDaysIcon, ClockIcon, DocumentCheckIcon } from "@heroicons/react/24/outline";
+import { Link, useLocation } from "react-router-dom";
+import { ArrowUpRightIcon, CalendarDaysIcon, ClockIcon, DocumentCheckIcon } from "@heroicons/react/24/outline";
 import Timer from "../Exam/Timer";
+import { examMinutes, examSchedule } from "./examPresentation";
 
 export default function ExamCard({ exam, enroll, pendingExam, onResults, headingLevel: Heading = "h3" }) {
-  const date = exam.examDate && moment(exam.examDate);
-  const schedule = exam.isStartTime
-    ? (date && date.isValid() ? date.format("YYYY-MM-DD HH:mm") : "Эхлэх цаг тодорхойгүй")
-    : "Хэзээ ч өгөх боломжтой";
+  const { pathname, search } = useLocation();
+  const minutes = examMinutes(exam);
 
   return (
-    <article className="app-panel flex min-w-0 flex-col gap-4 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-800 dark:bg-orange-950/70 dark:text-orange-300">
+    <article className="app-panel flex min-w-0 flex-col gap-4 p-4 transition hover:border-orange-300 sm:p-5 dark:hover:border-orange-800">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-900 dark:bg-orange-950/70 dark:text-orange-300">
           <DocumentCheckIcon aria-hidden="true" className="size-5" />
         </span>
-        {exam.lessonName && <p className="text-sm font-bold text-slate-600 dark:text-slate-300">{exam.lessonName}</p>}
+        {exam.isOpenAnswer && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-extrabold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Дүн гарсан</span>}
       </div>
-      <Heading className="text-lg font-extrabold leading-snug [overflow-wrap:anywhere]">
-        <Link to={`/e/${exam._id}`} className="rounded-sm hover:text-orange-800 hover:underline dark:hover:text-orange-300">{exam.name}</Link>
-      </Heading>
-      <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-        <p className="flex items-center gap-2"><CalendarDaysIcon aria-hidden="true" className="size-5 shrink-0" />{schedule}</p>
-        {exam.examTime != null && <p className="flex items-center gap-2"><ClockIcon aria-hidden="true" className="size-5 shrink-0" />{exam.examTime} минут</p>}
+      <div>
+        {exam.lessonName && <p className="mb-1 text-xs font-bold text-slate-600 dark:text-slate-300">{exam.lessonName}</p>}
+        <Heading className="text-lg font-extrabold leading-snug [overflow-wrap:anywhere]">
+          <Link to={`/e/${encodeURIComponent(exam._id)}`} state={{ examCatalog: pathname + search }}
+            className="inline-flex items-start gap-2 rounded-sm hover:text-orange-800 hover:underline dark:hover:text-orange-300">
+            {exam.name || "Сорил"}<ArrowUpRightIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-orange-700 dark:text-orange-300" />
+          </Link>
+        </Heading>
+      </div>
+      <div className="space-y-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-800/55 dark:text-slate-300">
+        <p className="flex items-start gap-2"><CalendarDaysIcon aria-hidden="true" className="size-5 shrink-0" />{examSchedule(exam)}</p>
+        {minutes && <p className="flex items-center gap-2"><ClockIcon aria-hidden="true" className="size-5 shrink-0" />{minutes}</p>}
         {exam.isStartTime && Number(exam.shalgaltHugatsaa) > 0 && (
           <Timer exDate={exam.shalgaltHugatsaa} css="font-bold tabular-nums text-orange-800 dark:text-orange-300" />
         )}

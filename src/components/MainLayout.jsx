@@ -80,11 +80,16 @@ function Sidebar({ user, onNavigate, onLogout }) {
 }
 
 export default function MainLayout() {
-  const { logout, user, expTime, setSigInOpen } = useContext(MainContext);
+  const { logout, user, sessionExpiresAt, setSigInOpen } = useContext(MainContext);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [menuPath, setMenuPath] = useState(null);
-  const section = sections[pathname.split("/")[2] || ""] || sections[""];
+  const sectionPath = pathname.split("/")[2];
+  const section = sections[sectionPath === "learn" ? "training" : sectionPath || ""] || sections[""];
+  const pageTitle = /^\/control\/suragch\/[^/]+\/?$/.test(pathname) ||
+    (/^\/control\/soril\/?$/.test(pathname) && ["suragch", "Student"].includes(user.role))
+    ? "Оролцсон сорилууд"
+    : section.label;
   const closeMenu = () => setMenuPath(null);
   const signOut = () => {
     closeMenu();
@@ -117,12 +122,12 @@ export default function MainLayout() {
               <button type="button" onClick={() => setMenuPath(pathname)} aria-label="Удирдлагын цэс нээх" aria-expanded={menuPath === pathname} className="app-icon-button -ml-2 lg:hidden">
                 <Bars3Icon aria-hidden="true" className="size-6" />
               </button>
-              <p className="truncate text-base font-extrabold sm:text-lg">{section.label}</p>
+              <h1 className="truncate text-base font-extrabold sm:text-lg">{pageTitle}</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {expTime.success && expTime.logoutTime > 0 && (
+              {Number.isFinite(sessionExpiresAt) && (
                 <div aria-label="Сесс дуусах хугацаа" className="shrink-0 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold tabular-nums dark:bg-slate-800">
-                  <ExpTimer key={expTime.logoutTime} exDate={expTime.logoutTime} logout={logout} />
+                  <ExpTimer deadline={sessionExpiresAt} />
                 </div>
               )}
 

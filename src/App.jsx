@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useContext, useEffect } from "react";
+import React, { Component, lazy, Suspense, useContext, useEffect } from "react";
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import MainContext from "./Context/MainContext";
 import ProtectedRoutes from "./ProtectedRoutes";
 import Loader from "./components/General/Loader";
 import ThemeToggle from "./components/General/ThemeToggle";
+import CollectionState from "./components/General/CollectionState";
 
 const MainLayout = lazy(() => import("./components/MainLayout"));
 const TestList = lazy(() => import("./components/Tests/TestList"));
@@ -29,10 +30,33 @@ const BagshSurgalt = lazy(() => import("./Pages/Bagsh/BagshSurgalt"));
 const SorilList = lazy(() => import("./components/Soril/SorilList"));
 const TLogin = lazy(() => import("./Pages/TLogin"));
 const SurgaltSuragch = lazy(() => import("./components/Surgalt/SurgaltSuragch"));
+const CourseLearning = lazy(() => import("./components/Surgalt/CourseLearning"));
 const Verif = lazy(() => import("./Pages/Verif"));
 const ForgotPass = lazy(() => import("./Pages/ForgotPass"));
 const Changepass = lazy(() => import("./Pages/Changepass"));
 const SignUp = lazy(() => import("./Pages/SignUp"));
+
+class RouteErrorBoundary extends Component {
+  state = { failed: false, pathname: this.props.pathname };
+
+  static getDerivedStateFromProps({ pathname }, previous) {
+    return pathname === previous.pathname ? null : { pathname, failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return <Suspense fallback={<Loader />}>{this.props.children}</Suspense>;
+    return (
+      <main id="main-content" tabIndex={-1} className="app-container max-w-xl py-16">
+        <CollectionState state="error" title="Хуудас ачаалагдсангүй"
+          actionLabel="Хуудсыг дахин ачаалах" action={() => window.location.reload()} />
+      </main>
+    );
+  }
+}
 
 const App = () => {
   const { pathname, hash } = useLocation();
@@ -46,12 +70,12 @@ const App = () => {
     <div className="app-shell relative min-h-screen bg-slate-50 font-nunito text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
       <div aria-hidden="true" className="app-atmosphere" />
       <a href="#main-content" className="app-button-primary sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[60]">Үндсэн хэсэг рүү алгасах</a>
-      <Suspense fallback={<Loader />}>
+      <RouteErrorBoundary pathname={pathname}>
         <Routes>
-          <Route element={<HomeLayout fullscreen />}>
+          <Route element={<HomeLayout key="auth" fullscreen />}>
             <Route path="login" element={<SignUp />} />
           </Route>
-          <Route element={<HomeLayout />}>
+          <Route element={<HomeLayout key="public" />}>
             <Route index element={<Home />} />
             <Route path="home" element={<Home />} />
             <Route path="soril/:stype" element={<SorilList key={pathname} />} />
@@ -71,6 +95,7 @@ const App = () => {
           <Route element={<ProtectedRoutes user={user} />}>
             <Route path="control" element={<MainLayout />}>
               <Route path="*" element={<NotFound dashboard />} />
+              {["suragch", "Student"].includes(user?.role) && <Route path="learn/:courseId" element={<CourseLearning />} />}
               {user?.role === "admin" && (
                 <>
                   <Route index element={<AdminDash />} />
@@ -143,7 +168,7 @@ const App = () => {
             </Route>
           </Route>
         </Routes>
-      </Suspense>
+      </RouteErrorBoundary>
       <ThemeToggle />
     </div>
   );

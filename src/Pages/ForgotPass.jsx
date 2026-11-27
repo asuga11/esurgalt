@@ -4,5 +4,5 @@ import AccountAction from "../components/General/AccountAction";
 
 export default function ForgotPass() {
   const { forgotPass } = useContext(MainContext);
-  return <AccountAction title="Нууц үг сэргээх" label="Имэйл хаяг" type="email" autoComplete="email" submitLabel="Илгээх" onSubmit={forgotPass} />;
+  return <AccountAction label="Имэйл хаяг" type="email" autoComplete="email" submitLabel="Илгээх" onSubmit={forgotPass} />;
 }

@@ -11,14 +11,20 @@ function readSessionUser(token) {
 
   try {
     const user = jwtDecode(token);
-    return user.role && (!user.exp || user.exp * 1000 > Date.now()) ? user : null;
+    return user.role && (user.exp == null || user.exp * 1000 > Date.now()) ? user : null;
   } catch {
     return null;
   }
 }
 
 export const MainStore = ({ children }) => {
-  const token = localStorage.getItem("token");
+  const [session, setSession] = useState(() => {
+    const token = localStorage.getItem("token");
+    const user = readSessionUser(token);
+    return user ? { token, user } : null;
+  });
+  const token = session?.token ?? null;
+  const user = session?.user ?? null;
 
   const navigate = useNavigate();
   const { state: navigationState } = useLocation();
@@ -29,7 +35,6 @@ export const MainStore = ({ children }) => {
     getAddress();
   }, []);
 
-  const [user, setUser] = useState(() => readSessionUser(token));
   useEffect(() => {
     if (token && user) getAnaliz();
     else setAnaliz({});
@@ -38,10 +43,8 @@ export const MainStore = ({ children }) => {
     success: false,
     suragch: {},
   });
-  const [expTime, setExpTime] = useState({
-    success: false,
-    logoutTime: 60000,
-  });
+  const [serverExpiresAt, setServerExpiresAt] = useState(null);
+  const sessionExpiresAt = Math.min(user?.exp == null ? Infinity : user.exp * 1000, serverExpiresAt ?? Infinity);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") === "dark" ? "dark" : "light");
   let [sigInOpen, setSigInOpen] = useState(false);
 
@@ -111,6 +114,7 @@ export const MainStore = ({ children }) => {
   });
   const [testOnestate, setTestOneState] = useState({});
   const memberExamRequest = useRef(null);
+  const examResultRequest = useRef(null);
   const questionRequest = useRef(null);
 
   const [hicheelState, setHicheelState] = useState({
@@ -151,9 +155,6 @@ export const MainStore = ({ children }) => {
   });
   const [lesson, setlesson] = useState({});
   const [surgaltStateOne, setsurgaltStateOne] = useState(null);
-  const [suragchSurgalt, setsuragchSurgalt] = useState({
-    surgaltuud: [],
-  });
   const [analiz, setAnaliz] = useState({});
 
   // analiz
@@ -191,7 +192,7 @@ export const MainStore = ({ children }) => {
   };
   // ---------------------------------------------------------------------
   const checkLogin = () => {
-    if (readSessionUser(token)) getExpTime(token);
+    if (token) getExpTime(token);
     else logout();
   };
 
@@ -210,6 +211,14 @@ export const MainStore = ({ children }) => {
     setTeacherOne({ teachr: {}, success: false });
   }, []);
 
+  const logout = useCallback(() => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    setSession(null);
+    setServerExpiresAt(null);
+    clearProfiles();
+  }, [clearProfiles]);
+
   const activateSession = useCallback((sessionToken, timing) => {
     const sessionUser = readSessionUser(sessionToken);
     if (!sessionUser) return false;
@@ -217,8 +226,8 @@ export const MainStore = ({ children }) => {
     if (localStorage.getItem("token") !== sessionToken) clearProfiles();
     localStorage.setItem("token", sessionToken);
     localStorage.setItem("user", JSON.stringify(sessionUser));
-    setUser(sessionUser);
-    setExpTime(timing ?? { success: false, logoutTime: 0 });
+    setSession({ token: sessionToken, user: sessionUser });
+    setServerExpiresAt(timing ? Date.now() + Number(timing.logoutTime) : null);
     return true;
   }, [clearProfiles]);
 
@@ -231,7 +240,7 @@ export const MainStore = ({ children }) => {
   }, [theme]);
 
   // ----------------- System ----------------
-  const getExpTime = (token1) => {
+  const getExpTime = useCallback((token1) => {
     token1 &&
       axios
         .get(`settings/loginTime`, {
@@ -241,21 +250,69 @@ export const MainStore = ({ children }) => {
         })
         .then((res) => {
           if (localStorage.getItem("token") !== token1) return;
-          if (res.data.logoutTime <= 0) {
+          const remaining = Number(res.data.logoutTime);
+          if (!Number.isFinite(remaining)) return;
+          if (remaining <= 0) {
             logout();
             return;
           }
-          setExpTime({ ...res.data });
+          if (res.data.success) setServerExpiresAt(Date.now() + remaining);
         })
         .catch((error) => {
           if (localStorage.getItem("token") !== token1) return;
           if (error.response.data.error === "jwt expired") {
             logout();
-            navigate("/");
           }
           toast.error(error.response.data.error);
         });
-  };
+  }, [logout]);
+
+  useEffect(() => {
+    if (!token || !Number.isFinite(sessionExpiresAt)) return;
+
+    let timeout;
+    const checkExpiry = () => {
+      window.clearTimeout(timeout);
+      if (localStorage.getItem("token") !== token) return;
+
+      const remaining = sessionExpiresAt - Date.now();
+      if (remaining <= 0) logout();
+      else timeout = window.setTimeout(checkExpiry, Math.min(remaining, 2_147_483_647));
+    };
+    const checkOnVisibility = () => {
+      if (!document.hidden) checkExpiry();
+    };
+
+    checkExpiry();
+    window.addEventListener("focus", checkExpiry);
+    document.addEventListener("visibilitychange", checkOnVisibility);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("focus", checkExpiry);
+      document.removeEventListener("visibilitychange", checkOnVisibility);
+    };
+  }, [token, sessionExpiresAt, logout]);
+
+  useEffect(() => {
+    const syncSession = (event) => {
+      if (event.storageArea !== localStorage || (event.key !== "token" && event.key !== null)) return;
+
+      const storedToken = localStorage.getItem("token");
+      if (storedToken === token) return;
+      const storedUser = readSessionUser(storedToken);
+      if (!storedUser) {
+        logout();
+        return;
+      }
+
+      clearProfiles();
+      setSession({ token: storedToken, user: storedUser });
+      setServerExpiresAt(null);
+      getExpTime(storedToken);
+    };
+    window.addEventListener("storage", syncSession);
+    return () => window.removeEventListener("storage", syncSession);
+  }, [token, clearProfiles, getExpTime, logout]);
   // ---------- Auth---------------
   const login = (identifier, password, role, { inlineError = false, phone } = {}) => {
     let url =
@@ -312,14 +369,6 @@ export const MainStore = ({ children }) => {
       })
       .catch((error) => toast.error(error.response.data.error));
   };
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    setUser(null);
-    clearProfiles();
-    setExpTime({ success: false, logoutTime: 0 });
-  };
-
   // ------- email verif ------------------
   const emailVerif = (code) => {
     return axios
@@ -833,18 +882,24 @@ export const MainStore = ({ children }) => {
         return false;
       });
   }, [token]);
+  const fetchExamResults = useCallback(async (id, signal) => {
+    const { data } = await axios.get(`shalgaltdun/resultAll/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal,
+    });
+    if (data?.success === false || !Array.isArray(data?.shalgaltdun)) throw new Error("Сорилын дүн олдсонгүй.");
+    return data;
+  }, [token]);
   const getShalgaltAllDun = (id) => {
-    axios
-      .get(`shalgaltdun/resultAll/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then((res) => {
-        setDunAllState({ ...res.data });
-      })
-      .catch((error) => toast.error(error.response.data.error));
+    fetchExamResults(id).then(setDunAllState)
+      .catch((error) => toast.error(error.response?.data?.error || error.message));
   };
+  const fetchExamAttempt = useCallback(async (eid, mid, signal) => {
+    const { data } = await axios.get(`shalgalt/findOne/${encodeURIComponent(eid)}/${encodeURIComponent(mid)}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal,
+    });
+    if (!data?.success || !data.info || !data.shalgalt) throw new Error("Оролцогчийн сорилын мэдээлэл олдсонгүй.");
+    return data;
+  }, [token]);
   const getMemberExamOne = (eid, mid, type, signal) => {
     const previous = memberExamRequest.current;
     const opening = type === "start" || type === "view";
@@ -858,18 +913,15 @@ export const MainStore = ({ children }) => {
 
     if (opening) {
       questionRequest.current = null;
+      examResultRequest.current = null;
       setTestOneState(null);
       setMemberExamOne({ success: false, info: {}, shalgalt: {}, shalgaltdun: [] });
       setDunMember({ success: false, shalgaltdun: {} });
     }
 
-    return axios
-      .get(`shalgalt/findOne/${eid}/${mid}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: request.signal,
-      })
-      .then(({ data }) => {
-        if (!isCurrent() || !data?.success || !data.info || !data.shalgalt) return false;
+    return fetchExamAttempt(eid, mid, request.signal)
+      .then((data) => {
+        if (!isCurrent()) return false;
         const questions = Array.isArray(data.shalgaltdun) ? data.shalgaltdun : [];
         setMemberExamOne({ ...data, shalgaltdun: questions });
 
@@ -947,17 +999,17 @@ export const MainStore = ({ children }) => {
       signal,
     }).then(({ data }) => Array.isArray(data?.shalgaltuud) ? data.shalgaltuud : []);
   }, [token]);
+  const fetchExamDetails = useCallback(async (id, signal) => {
+    const { data } = await axios.get(`shalgalt/listtests/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+    if (data?.success === false || !data?.shalgalt) throw new Error("Сорилын дэлгэрэнгүй мэдээлэл олдсонгүй.");
+    return data;
+  }, [token]);
   const getShalgaltList = (id) => {
-    axios
-      .get(`shalgalt/listtests/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then((res) => {
-        setShalgaltOne({ ...res.data });
-      })
-      .catch((error) => toast.error(error.response.data.error));
+    return fetchExamDetails(id).then((data) => setShalgaltOne(data))
+      .catch((error) => toast.error(error.response?.data?.error || error.message));
   };
   const addExam = (newExam) => {
     return axios
@@ -1016,22 +1068,23 @@ export const MainStore = ({ children }) => {
       })
       .catch((error) => toast.error(error.response.data.error));
   };
-  const addExamTest = (eid, _id) => {
-    axios
-      .put(
-        `shalgalt/addTest/${eid}`,
-        { _id },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      )
-      .then((res) => {
-        toast.success("Нэмлээ");
-        getShalgaltList(eid);
-      })
-      .catch((error) => toast.error(error.response.data.error));
+  const addExamTest = async (eid, _id) => {
+    try {
+      const [question, { getQuestionWarning }] = await Promise.all([
+        fetchTestDetails(_id),
+        import("../components/Exam/examReadiness"),
+      ]);
+      const warning = getQuestionWarning(question);
+      if (warning) {
+        toast.error(warning);
+        return;
+      }
+      await axios.put(`shalgalt/addTest/${eid}`, { _id }, { headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Нэмлээ");
+      await getShalgaltList(eid);
+    } catch (error) {
+      toast.error(error.response?.data?.error || error.message);
+    }
   };
   const removeExamTest = (eid, _id) => {
     axios
@@ -1111,20 +1164,27 @@ export const MainStore = ({ children }) => {
         return false;
       });
   };
-  const getExamMemberResult = useCallback((eid, mid, signal) => {
-    setDunMember({ success: false, shalgaltdun: {} });
-    return axios
-      .get(`shalgaltdun/result/${eid}/${mid}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal,
-      })
-      .then(({ data }) => {
-        if (!signal?.aborted) setDunMember(data);
-      })
-      .catch((error) => {
-        if (!signal) toast.error(error.response.data.error);
-      });
+  const fetchExamMemberResult = useCallback(async (eid, mid, signal) => {
+    const { data } = await axios.get(`shalgaltdun/result/${encodeURIComponent(eid)}/${encodeURIComponent(mid)}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal,
+    });
+    return data;
   }, [token]);
+  const getExamMemberResult = useCallback((eid, mid, signal) => {
+    const request = {};
+    examResultRequest.current = request;
+    const isCurrent = () => examResultRequest.current === request &&
+      !signal?.aborted && localStorage.getItem("token") === token;
+    const failed = { success: false, error: true, shalgaltdun: {} };
+    setDunMember({ success: false, shalgaltdun: {} });
+    return fetchExamMemberResult(eid, mid, signal)
+      .then((data) => {
+        if (isCurrent()) setDunMember(data?.success ? data : failed);
+      })
+      .catch(() => {
+        if (isCurrent()) setDunMember(failed);
+      });
+  }, [fetchExamMemberResult, token]);
   const removeExamMember = (eid, _id) => {
     axios
       .put(
@@ -1143,9 +1203,8 @@ export const MainStore = ({ children }) => {
       .catch((error) => toast.error(error.response.data.error));
   };
   // ------------ TestSan ----------------
-  const addTest = (data, aguulga, limit, page) => {
-    setTestOneState(null);
-    axios
+  const addTest = (data) => {
+    return axios
       .post(`testsan`, data, {
         headers: {
           "Content-Type": "application/json",
@@ -1154,21 +1213,18 @@ export const MainStore = ({ children }) => {
         },
       })
       .then((res) => {
-        getTest(res.data.testsan._id);
-        // toast.success("Амжилттай");
-        getTestSan(
-          user.id,
-          res.data.testsan.hicheel_name,
-          res.data.testsan.aguulga_name,
-          5,
-          1
-        );
-        getTestHicheel(user.id);
+        if (!res.data.testsan?._id) throw new Error("Асуулт хадгалсан эсэхийг баталгаажуулж чадсангүй.");
+        const question = { ...data, ...res.data.testsan };
+        setTestOneState(question);
+        return question;
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .catch((error) => {
+        toast.error(error.response?.data?.error || error.message);
+        return null;
+      });
   };
-  const updateTest = (data, hicheel, aguulga, limit, page) => {
-    axios
+  const updateTest = (data) => {
+    return axios
       .put(`testsan/${data._id}`, data, {
         headers: {
           "Content-Type": "application/json",
@@ -1176,21 +1232,17 @@ export const MainStore = ({ children }) => {
           Authorization: `Bearer ${token}`,
         },
       })
-      .then((res) => {
+      .then(() => {
         toast.success("Амжилттай");
-        getTestSan(
-          user.id,
-          res.data.testsan.hicheel_name,
-          res.data.testsan.aguulga_name,
-          limit,
-          page
-        );
-        getTestHicheel(user.id);
+        return true;
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .catch((error) => {
+        toast.error(error.response?.data?.error || error.message);
+        return false;
+      });
   };
-  const deleteTest = (id, hicheel, aguulga, limit, page) => {
-    axios
+  const deleteTest = (id) => {
+    return axios
       .delete(`testsan/${id}`, {
         headers: {
           "Content-Type": "application/json",
@@ -1198,28 +1250,24 @@ export const MainStore = ({ children }) => {
           Authorization: `Bearer ${token}`,
         },
       })
-      .then((res) => {
+      .then(() => {
         toast.success("Амжилттай");
-        getTestSan(
-          user.id,
-          res.data.testsan.hicheel_name,
-          res.data.testsan.aguulga_name,
-          limit,
-          page
-        );
-        getTestHicheel(user.id);
+        return true;
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .catch((error) => {
+        toast.error(error.response?.data?.error || error.message);
+        return false;
+      });
   };
-  const getTestSan = (owner, hicheel, aguulga, limit, page) => {
-    let url = `testsan?${owner !== "" ? `&owner_id=${owner}` : ""}${
-      hicheel !== "" ? `&hicheel_name=${hicheel}` : ""
-    }${aguulga !== "" ? `&aguulga_name=${aguulga}` : ""}${
-      limit !== "" ? `&limit=${limit}` : ""
-    }${page !== "" ? `&page=${page}` : ""}&sort=-createdAt`;
-
-    axios
-      .get(url, {
+  const getTestSan = (owner, hicheel, aguulga, limit, page, signal) => {
+    const params = new URLSearchParams({ limit, page, sort: "-createdAt" });
+    if (owner) params.set("owner_id", owner);
+    else params.set("material", "true");
+    if (hicheel) params.set("hicheel_name", hicheel);
+    if (aguulga) params.set("aguulga_name", aguulga);
+    return axios
+      .get(`testsan?${params}`, {
+        signal,
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
@@ -1227,32 +1275,41 @@ export const MainStore = ({ children }) => {
         },
       })
       .then((res) => {
-        setTestSanState({ ...res.data });
+        if (!Array.isArray(res.data?.testsan)) throw new Error("Асуултын жагсаалт ирсэнгүй.");
+        if (!signal?.aborted) setTestSanState(res.data);
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .then(() => true)
+      .catch(() => false);
   };
-  const getTest = (id) => {
-    // setTestOneState({});
-    axios
-      .get(`testsan/${id}`, {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then((res) => {
-        setTestOneState({ ...res.data.testsan });
-      })
-      .catch((error) => toast.error(error.response.data.error));
+  const fetchTestDetails = async (id, signal) => {
+    const { data } = await axios.get(`testsan/${encodeURIComponent(id)}`, {
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!data?.testsan) throw new Error("Асуултын мэдээлэл олдсонгүй.");
+    return data.testsan;
   };
-  const getTestHicheel = (id) => {
+  const getTest = (id, signal) => {
+    return fetchTestDetails(id, signal).then((question) => {
+      if (!signal?.aborted) setTestOneState(question);
+      return true;
+    }).catch((error) => {
+      if (!signal?.aborted) toast.error(error.response?.data?.error || error.message);
+      return false;
+    });
+  };
+  const getTestHicheel = (id, signal) => {
     let url = `testsan/groupHicheelName${
-      id !== "" ? `?owner_id=${id}` : "?&material=true"
+      id !== "" ? `?owner_id=${encodeURIComponent(id)}` : "?material=true"
     }`;
 
-    axios
+    return axios
       .get(url, {
+        signal,
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
@@ -1260,9 +1317,11 @@ export const MainStore = ({ children }) => {
         },
       })
       .then((res) => {
-        setHicheelState({ ...res.data });
+        if (!Array.isArray(res.data?.content)) throw new Error("Хичээлийн жагсаалт ирсэнгүй.");
+        if (!signal?.aborted) setHicheelState(res.data);
+        return true;
       })
-      .catch((error) => toast.error(error.response.data.error));
+      .catch(() => false);
   };
   const addAnswwer = (id, data) => {
     axios
@@ -1421,53 +1480,62 @@ export const MainStore = ({ children }) => {
       })
       .catch((error) => toast.error(error.response.data.error));
   };
+  const getManagedCourse = useCallback(async (sid, signal) => {
+    const { data } = await axios.get(`surgalt/${encodeURIComponent(sid)}/url`, {
+      signal,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data?.surgalt ?? null;
+  }, [token]);
   const getBagshSurgaltOne = (sid, signal) => {
-    return axios
-      .get(`surgalt/${sid}/url`, {
-        signal,
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then((res) => {
-        if (!signal?.aborted) setsurgaltStateOne(res.data.surgalt || null);
-        return Boolean(res.data.surgalt?._id);
+    return getManagedCourse(sid, signal)
+      .then((course) => {
+        if (!signal?.aborted) setsurgaltStateOne(course);
+        return Boolean(course?._id);
       })
       .catch((error) => {
         if (!signal?.aborted) toast.error(error.response.data.error);
         return false;
       });
   };
+  const getCourseDetails = useCallback(async (sid, signal) => {
+    const { data } = await axios.get(`surgalt/${encodeURIComponent(sid)}`, {
+      signal,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data?.surgalt ?? null;
+  }, [token]);
+  const getLearningCourse = useCallback(async (sid, signal) => {
+    const { data } = await axios.get(`surgalt/${encodeURIComponent(sid)}/learn`, {
+      signal,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data;
+  }, [token]);
   const getSurgaltOne = (sid, signal) => {
-    return axios
-      .get(`surgalt/${sid}`, {
-        signal,
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then((res) => {
-        if (!signal?.aborted) setsurgaltStateOne(res.data.surgalt || null);
-        return Boolean(res.data.surgalt?._id);
+    return getCourseDetails(sid, signal)
+      .then((course) => {
+        if (!signal?.aborted) setsurgaltStateOne(course);
+        return Boolean(course?._id);
       })
       .catch((error) => {
         if (!signal?.aborted) toast.error(error.response.data.error);
         return false;
       });
   };
-  const getSuragchSurgalt = () => {
-    // setsurgaltStateOne(null);
-    axios
-      .get(`surgalt/member/${user.id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then((res) => {
-        setsuragchSurgalt({ ...res.data });
-      })
-      .catch((error) => toast.error(error.response.data.error));
-  };
+  const memberId = user?.id || user?._id || user?.sub;
+  const getSuragchSurgalt = useCallback(async (signal) => {
+    if (!memberId || !token) throw new Error("Хэрэглэгчийн мэдээлэл олдсонгүй.");
+    const { data } = await axios.get(`surgalt/member/${encodeURIComponent(memberId)}`, {
+      signal,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = data?.data ?? data;
+    if (result?.success === false || !Array.isArray(result?.surgaltuud)) {
+      throw new Error(result?.error || "Сургалтын жагсаалт ачаалж чадсангүй.");
+    }
+    return result.surgaltuud.filter((entry) => entry?.surgalt?._id);
+  }, [memberId, token]);
   const getAngilal = () => {
     axios
       .get(`angilal`, {
@@ -1621,15 +1689,16 @@ export const MainStore = ({ children }) => {
         addSurgaltMember,
         updateSurgaltMember,
         getSuragchSurgalt,
-        suragchSurgalt,
-        setsuragchSurgalt,
+        getCourseDetails,
+        getLearningCourse,
+        getManagedCourse,
         // studnts
         getStudentOne,
         studentStateOne,
         getstudone,
         studOne,
         // system
-        expTime,
+        sessionExpiresAt,
         // TestSan
         addTest,
         updateTest,
@@ -1652,6 +1721,9 @@ export const MainStore = ({ children }) => {
         dunMember,
         dunAllState,
         getShalgaltAllDun,
+        fetchExamResults,
+        fetchExamAttempt,
+        fetchExamMemberResult,
         getOpenDun,
         openDunState,
         // exam
@@ -1668,6 +1740,7 @@ export const MainStore = ({ children }) => {
         shalgaltOne,
         setShalgaltOne,
         getShalgaltList,
+        fetchExamDetails,
         getShalgalt,
         addExam,
         updateExam,

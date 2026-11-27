@@ -4,16 +4,15 @@ import { uploadBaseUrl } from "../../config";
 import {
   ClockIcon,
   EyeIcon,
-  PlayCircleIcon,
   UserGroupIcon,
   VideoCameraIcon,
 } from "@heroicons/react/24/solid";
 
 import React, { Fragment, useContext, useEffect, useState } from "react";
-import ReactPlayer from "react-player";
 import { Link, useParams } from "react-router-dom";
 
 import CollectionState from "../General/CollectionState";
+import CourseLessonViewer from "./CourseLessonViewer";
 import { coursePrice } from "./coursePrice";
 import MainContext from "../../Context/MainContext";
 import { XMarkIcon } from "@heroicons/react/24/outline";
@@ -37,9 +36,7 @@ const SurgaltOne = () => {
     return () => controller.abort();
   }, [id, attempt]);
 
-  const [value, setValue] = useState(null);
   const [open, setOpen] = useState(false);
-  const [sname, setSname] = useState("");
   if (status !== "ready" || !surgaltStateOne) {
     return (
       <div className="app-container py-7 sm:py-12">
@@ -51,7 +48,6 @@ const SurgaltOne = () => {
   }
 
   const { current: price, previous: previousPrice } = coursePrice(surgaltStateOne);
-  const video = value ? value.url : surgaltStateOne.video;
 
   return (
     <>
@@ -149,13 +145,7 @@ const SurgaltOne = () => {
                             </p>
                             <p className="flex gap-2">
                               МӨНГӨН ДҮН:{" "}
-                              <p className="mt-1 text-slate-900 dark:text-white font-bold">
-                                {surgaltStateOne.sale > 0
-                                  ? surgaltStateOne.info?.sellingPrice
-                                  : `${surgaltStateOne.price.toLocaleString(
-                                      "en-US"
-                                    )} ₮`}
-                              </p>
+                              <span className="mt-1 font-bold text-slate-900 dark:text-white">{price}</span>
                             </p>
                             <p className="flex gap-2">
                               ГҮЙЛГЭЭНИЙ УТГА:{" "}
@@ -201,21 +191,18 @@ const SurgaltOne = () => {
       </Transition.Root>
       {surgaltStateOne && (
         <>
-          <section className="app-container pt-7 sm:pt-12">
+          <section className="mx-auto w-full max-w-[96rem] px-4 pt-7 sm:px-6 sm:pt-10 lg:px-8" aria-labelledby="page-title">
             <Link to="/training" className="app-button-secondary mb-4">Сургалтын жагсаалт</Link>
+            {["suragch", "Student"].includes(user?.role) && surgaltStateOne.isTulbur === false && (
+              <Link to={`/control/learn/${encodeURIComponent(id)}`} className="app-button-primary mb-4 ml-2">Сургалт үзэх</Link>
+            )}
             {surgaltStateOne.angilal_id?.name && (
               <p className="text-sm font-extrabold text-orange-800 dark:text-orange-300">{surgaltStateOne.angilal_id.name}</p>
             )}
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight break-words sm:text-4xl">{surgaltStateOne.name}</h1>
+            <div className="mt-4"><CourseLessonViewer course={surgaltStateOne} /></div>
           </section>
           <div className="app-container grid items-start gap-4 py-6 sm:gap-6 lg:grid-cols-3">
             <div className="app-panel min-w-0 space-y-4 p-4 sm:p-6 lg:col-span-2">
-              {value && <h2 className="text-lg font-extrabold">{value.number}. {value.lessonName}</h2>}
-              {video && (
-                <div className="aspect-video overflow-hidden rounded-xl bg-slate-950">
-                  <ReactPlayer width="100%" height="100%" controls src={video} />
-                </div>
-              )}
               <div className="w-full space-y-3">
                 <div className="prose prose-slate max-w-none dark:prose-invert">
                   {renderRichText(surgaltStateOne.description || "")}
@@ -295,53 +282,6 @@ const SurgaltOne = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 pr-4 max-h-[600px] scroll-th scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-gray-300 overflow-y-scroll scrollbar-thumb-rounded-full scrollbar-track-rounded-full dark:text-white  w-full">
-                  {[...(surgaltStateOne?.lessons || [])]
-                    .sort((a, b) => a.number - b.number)
-                    .map((item, index) => {
-                      return (
-                        <button
-                          key={item._id || item.number || index}
-                          type="button"
-                          disabled={!item.url}
-                          // disabled={
-                          //   surgaltStateOne.members?.filter(
-                          //     (el) =>
-                          //       el.status === "Худалдаж авсан" &&
-                          //       el._id === user.id
-                          //   ).length > 0
-                          //     ? false
-                          //     : true
-                          // }
-                          onClick={() => {
-                            if (item.url) {
-                              setValue(item);
-                            } else {
-                              // if (user) {
-                              //   toast.error("Худалдаж авна уу!");
-                              // } else {
-                              //   toast.error("Нэвтрээгүй байна!");
-                              // }
-                            }
-                          }}
-                          className={`text-left p-3 rounded-xl flex justify-between items-center transition duration-300 disabled:cursor-not-allowed disabled:opacity-60 ${item.url ? "hover:bg-orange-500 dark:hover:bg-orange-600" : ""}
-                ${
-                  value?.number === item.number
-                    ? " bg-orange-500 dark:bg-orange-600 dark:text-gray-200 text-white"
-                    : " bg-gray-200 text-slate-800  dark:bg-slate-700 dark:text-gray-300 "
-                }`}
-                        >
-                          <span className="flex w-full flex-col text-base font-extrabold">
-                            <span>{item.lessonName}</span>
-                            <span className="text-xs font-medium">
-                              Үргэлжлэх хугацаа: {item.lessonTime}
-                            </span>
-                          </span>
-                          <PlayCircleIcon className="w-10 h-10" />
-                        </button>
-                      );
-                    })}
-                </div>
               </div>
             </div>
           </div>

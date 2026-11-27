@@ -7,10 +7,11 @@ import { coursePrice } from "./coursePrice";
 export default function CourseCard({ course }) {
   const [failedPhoto, setFailedPhoto] = useState(null);
   const { current, previous, discount } = coursePrice(course);
+  const action = course.isTulbur === false ? "Үзэх" : "Дэлгэрэнгүй";
 
   return (
     <article className="app-panel flex min-w-0 flex-col overflow-hidden transition-shadow hover:shadow-md">
-      <Link to={`/training/${course._id}`} aria-label={`${course.name} сургалтын дэлгэрэнгүй`} className="group flex h-full min-w-0 flex-col rounded-2xl focus-visible:outline-offset-[-3px]">
+      <Link to={`/training/${course._id}`} aria-label={`${course.name} сургалт · ${action}`} className="group flex h-full min-w-0 flex-col rounded-2xl focus-visible:outline-offset-[-3px]">
         <div className="relative grid aspect-video place-items-center overflow-hidden bg-gradient-to-br from-slate-200 to-orange-100 dark:from-slate-900 dark:to-slate-800">
           <BookOpenIcon aria-hidden="true" className="size-12 text-slate-400 dark:text-slate-500" />
           {course.photo && failedPhoto !== course.photo && (
@@ -42,7 +43,7 @@ export default function CourseCard({ course }) {
               {previous && <del className="block text-slate-500 dark:text-slate-400">{previous}</del>}
               <span className="font-extrabold text-orange-800 dark:text-orange-300">{current}</span>
             </div>
-            <span className="text-sm font-bold text-slate-600 group-hover:underline dark:text-slate-300">Дэлгэрэнгүй</span>
+            <span className="text-sm font-bold text-slate-600 group-hover:underline dark:text-slate-300">{action}</span>
           </div>
         </div>
       </Link>

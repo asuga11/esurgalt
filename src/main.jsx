@@ -3,6 +3,7 @@ import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import App from "./App";
 import { MainStore } from "./Context/MainContext";
+import "@fontsource-variable/nunito";
 import "./index.css";
 
 const basename = import.meta.env.BASE_URL.replace(/\/$/, "") || "/";

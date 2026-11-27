@@ -6,7 +6,7 @@ import Nav from "./Nav";
 
 function ExamCategory() {
   const { stype } = useParams();
-  return <h1>{stype}</h1>;
+  return <main aria-labelledby="page-title" data-category={stype} />;
 }
 
 function renderNav(content) {
@@ -31,7 +31,9 @@ test("lists ЭЕШ and server categories in one desktop exam menu", async () => 
   const menu = within(await screen.findByRole("menu"));
   expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["ЭЕШ-ын сорил", "Олимпиад"]);
   fireEvent.click(menu.getByRole("menuitem", { name: "Олимпиад" }));
-  expect(await screen.findByRole("heading", { name: "Олимпиад" })).toBeInTheDocument();
+  expect(await within(screen.getByRole("banner")).findByRole("heading", { name: "Олимпиад" })).toBeInTheDocument();
+  expect(screen.getByRole("main", { name: "Олимпиад" })).toHaveAttribute("data-category", "Олимпиад");
+  expect(within(screen.getByRole("main")).queryByRole("heading")).toBeNull();
 
   fireEvent.click(button);
   fireEvent.click(await screen.findByRole("menuitem", { name: "ЭЕШ-ын сорил" }));
